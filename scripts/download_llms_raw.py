@@ -72,6 +72,14 @@ SOURCES = {
         'https://google.github.io/adk-docs/llms.txt',
         'https://google.github.io/adk-docs/llms-full.txt',
     ),
+    # xAI publishes one full-content llms.txt (no separate llms-full.txt), so
+    # both slots point at it. NOTE: docs.x.ai 404s non-browser User-Agents, so
+    # the client below must send a browser UA. Uses the ===/path=== delimiter
+    # format -> needs the Grok split strategy in split_llms_pages.py.
+    'Grok': (
+        'https://docs.x.ai/llms.txt',
+        'https://docs.x.ai/llms.txt',
+    ),
 }
 
 # Output directory
@@ -154,7 +162,15 @@ async def main():
 
     start_time = datetime.now(timezone.utc)
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    # Some doc hosts (e.g. docs.x.ai) return 404 to non-browser User-Agents,
+    # so present a browser-like UA for all downloads.
+    headers = {
+        'User-Agent': (
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+            '(KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+        )
+    }
+    async with httpx.AsyncClient(timeout=60.0, headers=headers) as client:
         # Download all sources concurrently
         tasks = [
             download_source(client, name, urls) for name, urls in SOURCES.items()
