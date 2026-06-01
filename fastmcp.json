@@ -1,0 +1,19 @@
+{
+  "$schema": "https://gofastmcp.com/public/schemas/fastmcp.json/v1.json",
+  "source": {
+    "path": "src/platform_docs/server.py",
+    "entrypoint": "mcp"
+  },
+  "environment": {
+    "dependencies": [
+      "langchain-qdrant>=1.1.0",
+      "langchain-openai>=1.1.0",
+      "python-dotenv>=1.0.0",
+      "fastmcp>=2.14.0,<3"
+    ]
+  },
+  "deployment": {
+    "transport": "http",
+    "log_level": "INFO"
+  }
+}

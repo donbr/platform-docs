@@ -1,0 +1,1 @@
+"""Platform Docs test suite."""
