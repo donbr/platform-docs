@@ -11,6 +11,8 @@ Build with Grok, the AI model designed to deliver truthful, insightful answers.
 ## Models
 
 We offer a range of models supporting multiple use cases and modalities.
+You can use these models via the xAI API, compatible with OpenAI and Anthropic SDKs.
+Visit the xAI documentation to learn more about available endpoints and rate limits.
 
 ===/grok/connectors===
 #### Grok
@@ -18,7 +20,9 @@ We offer a range of models supporting multiple use cases and modalities.
 # Connectors
 
 Connectors are available to all Grok users and let Grok access your external
-tools and data sources directly within a conversation.
+tools and data sources directly within a conversation. You can configure connectors
+in your account settings and authorize Grok to read from services like Google Drive,
+Slack, and GitHub. Each connector follows OAuth 2.0 for secure authorization.
 
 ===/developers/tiny===
 short
@@ -73,3 +77,30 @@ def test_code_block_header_not_selected_as_title():
     page = pages[0]
     assert page["title"] == "snippet"
     assert "### setup the client" in page["content"]
+
+
+import json
+import scripts.split_llms_pages as sp
+
+
+def test_process_source_grok_drops_stubs_and_writes_manifest(tmp_path, monkeypatch):
+    raw = tmp_path / "raw"
+    out = tmp_path / "pages"
+    (raw / "Grok").mkdir(parents=True)
+    # The splitter reads llms-full.txt (Grok's corpus lands there via the
+    # downloader pointing both slots at llms.txt).
+    (raw / "Grok" / "llms-full.txt").write_text(GROK_FIXTURE, encoding="utf-8")
+
+    monkeypatch.setattr(sp, "RAW_DIR", raw)
+    monkeypatch.setattr(sp, "OUTPUT_DIR", out)
+
+    result = sp.process_source("Grok", use_grok=True)
+
+    assert result["status"] == "success"
+    # overview + connectors kept; "tiny" (5 chars) dropped by the stub filter.
+    assert result["page_count"] == 2
+    assert result["pages_dropped"] == 1
+
+    manifest = json.loads((out / "Grok" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["pattern_type"] == "grok"
+    assert all(p["source_url"].startswith("https://docs.x.ai/") for p in manifest["pages"])

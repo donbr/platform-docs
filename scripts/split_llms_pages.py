@@ -5,10 +5,11 @@ Split llms-full.txt files into individual pages/documents.
 Usage:
     uv run scripts-temp/split_llms_pages.py
 
-Three splitting strategies:
+Four splitting strategies:
 1. Source URL pattern: ^# .*$\nSource: (for LangChain, Anthropic, etc.)
 2. Header-only pattern: ^# (for PydanticAI, Zep - filters out code block false positives)
 3. Multi-level pattern: ^#{1,2} (for Temporal - splits on # and ## headers)
+4. Grok pattern: ^===/path=== page delimiter (for Grok - docs.x.ai/llms.txt)
 
 Outputs to data/interim/pages/{source}/ directory.
 """
@@ -41,6 +42,11 @@ SOURCES_HEADER_ONLY = [
 # Sources with multi-level header pattern (split on # and ##)
 SOURCES_MULTI_LEVEL = [
     'Temporal',
+]
+
+# Sources with Grok ===/path=== page-delimiter pattern (docs.x.ai/llms.txt)
+SOURCES_GROK = [
+    'Grok',
 ]
 
 # Minimum content length (chars) for a page to be kept. Pages below this are
@@ -263,12 +269,12 @@ def split_with_grok_pattern(content: str) -> list[dict]:
         block = content_neutralized[block_start:block_end]
 
         # Title = first H1 (^# ) in the block; fall back to last path segment.
-        h1 = re.search(r'^# (.+)$', block, re.MULTILINE)
+        h1 = PAGE_PATTERN_HEADER_ONLY.search(block)
         if h1:
             title = h1.group(1).strip()
             page_content = block[h1.end():].strip()
         else:
-            title = path.rstrip('/').split('/')[-1] or path
+            title = path.rstrip('/').split('/')[-1]
             page_content = block.strip()
 
         pages.append({
@@ -281,13 +287,14 @@ def split_with_grok_pattern(content: str) -> list[dict]:
     return pages
 
 
-def process_source(source_name: str, use_header_only: bool = False, use_multi_level: bool = False) -> dict:
+def process_source(source_name: str, use_header_only: bool = False, use_multi_level: bool = False, use_grok: bool = False) -> dict:
     """Process a single source's llms-full.txt file.
 
     Args:
         source_name: Name of the source (directory name)
         use_header_only: If True, use header-only pattern instead of URL pattern
         use_multi_level: If True, use multi-level header pattern (# and ##)
+        use_grok: If True, use Grok ===/path=== delimiter pattern
 
     Returns:
         Dict with processing results
@@ -306,7 +313,10 @@ def process_source(source_name: str, use_header_only: bool = False, use_multi_le
     content = input_path.read_text(encoding='utf-8')
 
     # Split into pages using appropriate pattern
-    if use_multi_level:
+    if use_grok:
+        pages = split_with_grok_pattern(content)
+        pattern_type = 'grok'
+    elif use_multi_level:
         pages = split_with_multi_level_pattern(content)
         pattern_type = 'multi_level'
     elif use_header_only:
@@ -439,8 +449,23 @@ def main():
         else:
             print(f'✗ {result.get("error", "unknown error")}')
 
+    # Process sources with Grok ===/path=== pattern
+    print()
+    print('=== Sources with Grok ===/path=== pattern ===')
+    for source in SOURCES_GROK:
+        print(f'Processing {source}...', end=' ')
+        result = process_source(source, use_grok=True)
+        results[source] = result
+
+        if result['status'] == 'success':
+            print(f'✓ {result["page_count"]} pages ({result["avg_size_chars"]:.0f} chars avg, '
+                  f'{result["pages_dropped"]} stubs dropped)')
+            total_pages += result['page_count']
+        else:
+            print(f'✗ {result.get("error", "unknown error")}')
+
     # Write overall manifest
-    all_sources = SOURCES_WITH_URL + SOURCES_HEADER_ONLY + SOURCES_MULTI_LEVEL
+    all_sources = SOURCES_WITH_URL + SOURCES_HEADER_ONLY + SOURCES_MULTI_LEVEL + SOURCES_GROK
     overall_manifest = {
         'sources_processed': len([r for r in results.values() if r['status'] == 'success']),
         'total_pages': total_pages,
