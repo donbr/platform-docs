@@ -61,6 +61,13 @@ PAGE_PATTERN_HEADER_ONLY = re.compile(r'^# (.+)$', re.MULTILINE)
 # Pattern 3: # Title OR ## Title at start of line (outside code blocks)
 PAGE_PATTERN_MULTI_LEVEL = re.compile(r'^(#{1,2})\s+(.+)$', re.MULTILINE)
 
+# Pattern 4: Grok ===/path=== page delimiter (docs.x.ai/llms.txt). The path is
+# the canonical URL path, e.g. ===/grok/connectors===.
+PAGE_PATTERN_GROK = re.compile(r'^===/(.+?)===$', re.MULTILINE)
+
+# Base URL used to rebuild canonical source URLs from Grok delimiter paths.
+GROK_BASE_URL = 'https://docs.x.ai/'
+
 
 def neutralize_code_block_headers(content: str) -> str:
     """Convert # headers inside code blocks to ### to avoid false positive matches.
@@ -220,6 +227,53 @@ def split_with_multi_level_pattern(content: str, levels: tuple = (1, 2)) -> list
             'parent_title': parent_title,
             'parent_index': parent_index,
             'source_url': None,  # No source URL in this format
+            'content': page_content,
+            'content_length': len(page_content),
+        })
+
+    return pages
+
+
+def split_with_grok_pattern(content: str) -> list[dict]:
+    """Split content using the Grok ===/path=== page delimiter.
+
+    Each page is delimited by a line like ``===/grok/connectors===``. The path
+    becomes the canonical source_url; the title is the page's first ``# `` H1
+    (falling back to the last path segment when a page has no H1, e.g. an H4
+    eyebrow only). Code-block headers are neutralized first so a ``# `` comment
+    inside a fenced block is never mistaken for the title.
+
+    Args:
+        content: Full text content of the Grok llms.txt corpus.
+
+    Returns:
+        List of page dicts with title, source_url, content, and content_length.
+    """
+    # Neutralize headers inside code blocks to avoid false title/header matches.
+    content_neutralized = neutralize_code_block_headers(content)
+
+    pages = []
+    matches = list(PAGE_PATTERN_GROK.finditer(content_neutralized))
+
+    for i, match in enumerate(matches):
+        path = match.group(1).strip()
+
+        block_start = match.end()
+        block_end = matches[i + 1].start() if i + 1 < len(matches) else len(content_neutralized)
+        block = content_neutralized[block_start:block_end]
+
+        # Title = first H1 (^# ) in the block; fall back to last path segment.
+        h1 = re.search(r'^# (.+)$', block, re.MULTILINE)
+        if h1:
+            title = h1.group(1).strip()
+            page_content = block[h1.end():].strip()
+        else:
+            title = path.rstrip('/').split('/')[-1] or path
+            page_content = block.strip()
+
+        pages.append({
+            'title': title,
+            'source_url': GROK_BASE_URL + path,
             'content': page_content,
             'content_length': len(page_content),
         })
