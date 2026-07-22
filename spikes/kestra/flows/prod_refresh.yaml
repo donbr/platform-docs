@@ -1,16 +1,23 @@
 id: prod_refresh
 namespace: platform_docs
 description: >-
-  PRODUCTION blue-green refresh of the OpenAI platform-docs collection. Builds a
-  fresh versioned collection from the current corpus, verifies the full count,
-  then (only with confirm=true) re-points the production `platform-docs` alias.
-  The old collection is left in place as an instant rollback. OpenAI collection
-  only — the FastEmbed collection is out of scope for this flow.
+  PRODUCTION blue-green refresh, collection-agnostic. Builds a fresh versioned
+  collection from the current corpus, verifies the full count, then (only with
+  confirm=true) re-points the given production alias; the old collection is left
+  as an instant rollback. Works for either embedder via inputs: OpenAI
+  (prod_alias=platform-docs, upload_script=upload_to_qdrant.py) or FastEmbed
+  (prod_alias=platform-docs-fastembed, upload_script=upload_to_qdrant_fastembed.py).
 
 inputs:
   - id: target_collection
     type: STRING
-    defaults: platform-docs-v3
+    defaults: platform-docs-v3          # e.g. platform-docs-v4 (OpenAI) or platform-docs-fastembed-v3
+  - id: prod_alias
+    type: STRING
+    defaults: platform-docs             # platform-docs (OpenAI) | platform-docs-fastembed (free)
+  - id: upload_script
+    type: STRING
+    defaults: upload_to_qdrant.py       # upload_to_qdrant.py (OpenAI) | upload_to_qdrant_fastembed.py (FastEmbed)
   - id: rebuild
     type: BOOLEAN
     defaults: true   # false = skip download/split/upload and just verify+promote an existing target
@@ -19,7 +26,6 @@ inputs:
     defaults: false  # MUST be true to actually re-point the production alias (safety gate)
 
 variables:
-  prod_alias: "platform-docs"
   # Bulk sources use batch 25/workers 2; Anthropic (large docs) uploads separately
   # at 10/1 per VECTOR_DB_REFRESH_GUIDE.md "Pitfall 6".
   bulk_sources: "FastMCP GoogleADK Grok Kestra LangChain McpProtocol OpenAI Prefect PydanticAI Supabase Temporal Vue Zep"
@@ -83,7 +89,7 @@ tasks:
       interval: PT1M
       maxAttempt: 3
     commands:
-      - cd /repo && uv run scripts/upload_to_qdrant.py --sources {{ vars.bulk_sources }} --collection {{ inputs.target_collection }} --batch-size 25 --workers 2
+      - cd /repo && uv run scripts/{{ inputs.upload_script }} --sources {{ vars.bulk_sources }} --collection {{ inputs.target_collection }} --batch-size 25 --workers 2
 
   - id: upload_anthropic
     type: io.kestra.plugin.scripts.shell.Commands
@@ -95,7 +101,7 @@ tasks:
       interval: PT1M
       maxAttempt: 3
     commands:
-      - cd /repo && uv run scripts/upload_to_qdrant.py --sources Anthropic --collection {{ inputs.target_collection }} --batch-size 10 --workers 1
+      - cd /repo && uv run scripts/{{ inputs.upload_script }} --sources Anthropic --collection {{ inputs.target_collection }} --batch-size 10 --workers 1
 
   # --- Verify + promote (always) ---
   - id: compute_expected
@@ -126,7 +132,7 @@ tasks:
     taskRunner:
       type: io.kestra.plugin.core.runner.Process
     commands:
-      - cd /repo && uv run python -m spikes.kestra.prod_alias_swap --alias {{ vars.prod_alias }} --collection {{ inputs.target_collection }} --expected {{ outputs.compute_expected.vars.count }} --confirm true
+      - cd /repo && uv run python -m spikes.kestra.prod_alias_swap --alias {{ inputs.prod_alias }} --collection {{ inputs.target_collection }} --expected {{ outputs.compute_expected.vars.count }} --confirm true
 
   - id: record_run_success
     type: io.kestra.plugin.jdbc.postgresql.Query

@@ -122,14 +122,16 @@ access is granted by *sharing* the target Sheet/folder with the SA's email.
   ```
   It writes one row per source (`source, source_url, doc_count, last_downloaded, collection_version, generated_at`) into the `Stats` tab. Arm the weekly refresh by removing `disabled: true` from its `Schedule` trigger.
 - **Drive run-report** (in `platform_docs_poc.yaml`): run the POC flow with `--inputs '{"upload_to_drive": true}'`.
-- **Production blue-green refresh** (`flows/prod_refresh.yaml`, OpenAI `platform-docs` collection): builds a fresh versioned collection from the current corpus, verifies the **full** count, then re-points the production `platform-docs` alias — leaving the old collection as an instant rollback. Two safety gates: the **verify gate** (a short count fails the flow before any swap) and a `confirm` input (the production alias is only re-pointed when `confirm=true`; `prod_alias_swap.py` also refuses non-production aliases and re-checks the count). Bulk sources upload at 25/2, Anthropic at 10/1 (Pitfall 6).
+- **Production blue-green refresh** (`flows/prod_refresh.yaml`, **collection-agnostic**): builds a fresh versioned collection from the current corpus, verifies the **full** count, then re-points the given production alias — leaving the old collection as an instant rollback. Two safety gates: the **verify gate** (a short count fails the flow before any swap) and a `confirm` input (the alias is only re-pointed when `confirm=true`; `prod_alias_swap.py` also refuses non-production aliases and re-checks the count). Bulk sources upload at 25/2, Anthropic at 10/1 (Pitfall 6). Choose the embedder via `prod_alias` + `upload_script`:
   ```bash
-  # Full refresh (build + verify + promote):
+  # OpenAI — full refresh (build + verify + promote):
   kestra flow execute platform_docs prod_refresh --inputs '{"target_collection":"platform-docs-v4","confirm":true}'
+  # FastEmbed — full refresh:
+  kestra flow execute platform_docs prod_refresh --inputs '{"target_collection":"platform-docs-fastembed-v4","prod_alias":"platform-docs-fastembed","upload_script":"upload_to_qdrant_fastembed.py","confirm":true}'
   # Promote an already-built collection without re-embedding (verify + swap only):
   kestra flow execute platform_docs prod_refresh --inputs '{"target_collection":"platform-docs-v3","rebuild":false,"confirm":true}'
   ```
-  Run with `confirm=false` first for a safe dry run (builds + verifies, no swap). FastEmbed is out of this flow's scope.
+  Run with `confirm=false` first for a safe dry run (builds + verifies, no swap).
 
 ## 8. Known limitations (for this stack)
 
