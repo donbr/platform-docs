@@ -28,7 +28,7 @@ tasks:
   # (1) READ — read a sample of the real submissions tab, read-only
   - id: read_source
     type: io.kestra.plugin.googleworkspace.sheets.ReadRange
-    serviceAccount: "{{ secret('GOOGLE_SERVICE_ACCOUNT') }}"
+    serviceAccount: "{{ secret('AIE_SERVICE_ACCOUNT') }}"
     spreadsheetId: "{{ inputs.spreadsheet_id }}"
     range: "{{ inputs.source_tab }}!A1:H4"
 
@@ -41,7 +41,7 @@ tasks:
       - printf 'check,value,status\nwritten_by,kestra,pending\nexecution,{{ execution.id }},pending\n' > write.csv
   - id: write_test
     type: io.kestra.plugin.googleworkspace.sheets.Load
-    serviceAccount: "{{ secret('GOOGLE_SERVICE_ACCOUNT') }}"
+    serviceAccount: "{{ secret('AIE_SERVICE_ACCOUNT') }}"
     from: "{{ outputs.make_write_csv.outputFiles['write.csv'] }}"
     spreadsheetId: "{{ inputs.spreadsheet_id }}"
     range: "{{ inputs.test_tab }}"
@@ -58,7 +58,7 @@ tasks:
       - printf 'verified\nverified\n' > update.csv
   - id: update_test
     type: io.kestra.plugin.googleworkspace.sheets.Load
-    serviceAccount: "{{ secret('GOOGLE_SERVICE_ACCOUNT') }}"
+    serviceAccount: "{{ secret('AIE_SERVICE_ACCOUNT') }}"
     from: "{{ outputs.make_update_csv.outputFiles['update.csv'] }}"
     spreadsheetId: "{{ inputs.spreadsheet_id }}"
     range: "{{ inputs.test_tab }}!C2"
@@ -69,6 +69,6 @@ tasks:
   # (4) VERIFY — read the test tab back to confirm write + update landed
   - id: verify
     type: io.kestra.plugin.googleworkspace.sheets.ReadRange
-    serviceAccount: "{{ secret('GOOGLE_SERVICE_ACCOUNT') }}"
+    serviceAccount: "{{ secret('AIE_SERVICE_ACCOUNT') }}"
     spreadsheetId: "{{ inputs.spreadsheet_id }}"
     range: "{{ inputs.test_tab }}"
