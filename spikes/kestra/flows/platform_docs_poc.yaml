@@ -5,7 +5,7 @@ description: "Spike ETL for platform-docs into POC sandbox collections/aliases; 
 inputs:
   - id: expected_doc_count
     type: INT
-    defaults: 608   # OpenAI(139) + Vue(92) + Supabase(377). Set 999 to force the gate to fail.
+    defaults: 0   # 0 = compute dynamically from split output; a positive value overrides (set 999 to force the gate to fail).
   - id: upload_to_drive
     type: BOOLEAN
     defaults: false  # set true once a Google service account is configured (see README)
@@ -38,9 +38,9 @@ tasks:
     type: io.kestra.plugin.jdbc.postgresql.Query
     sql: |
       INSERT INTO orchestration.pipeline_runs
-        (run_id, flow, stage, status, environment, collection_version, docs_expected)
+        (run_id, flow, stage, status, environment, collection_version)
       VALUES
-        ('{{ execution.id }}', '{{ flow.id }}', 'download', 'running', 'poc', 'v1', {{ inputs.expected_doc_count }});
+        ('{{ execution.id }}', '{{ flow.id }}', 'download', 'running', 'poc', 'v1');
 
   - id: download_sources
     type: io.kestra.plugin.scripts.shell.Commands
@@ -60,10 +60,20 @@ tasks:
     commands:
       - cd /repo && uv run scripts/split_llms_pages.py
 
+  # Compute the real expected doc count from the split output (emits a Kestra
+  # output var 'count' consumed by the gate override + telemetry below).
+  - id: compute_expected
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - cd /repo && uv run python -m spikes.kestra.emit_expected
+
   - id: update_state_uploading
     type: io.kestra.plugin.jdbc.postgresql.Query
     sql: |
-      UPDATE orchestration.pipeline_runs SET stage = 'upload'
+      UPDATE orchestration.pipeline_runs
+      SET stage = 'upload', docs_expected = {{ outputs.compute_expected.vars.count }}
       WHERE run_id = '{{ execution.id }}';
 
   - id: upload_openai
@@ -116,7 +126,7 @@ tasks:
     sql: |
       UPDATE orchestration.pipeline_runs
       SET status = 'success', stage = 'alias_swap', finished_at = NOW(),
-          alias_swapped_at = NOW(), docs_uploaded = {{ inputs.expected_doc_count }}
+          alias_swapped_at = NOW(), docs_uploaded = {{ outputs.compute_expected.vars.count }}
       WHERE run_id = '{{ execution.id }}';
 
   # --- Best-effort Google Drive reporting (runs only when upload_to_drive=true; never fails the run) ---

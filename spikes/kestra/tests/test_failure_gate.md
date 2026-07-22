@@ -12,13 +12,19 @@ print(a or 'NONE')"
 ```
 Note the result (`NONE` on first ever run, else prior POC targets).
 
-## Step 2 — execute with a forced shortfall (expected=999)
+## Step 2 — execute with a forced shortfall
 
-Download/split/upload succeed (608 real docs land), but `verify_counts` compares
-608 against 999 and exits non-zero.
+Download/split/upload succeed, but `verify_counts` compares the actual Qdrant
+count against an inflated `expected_doc_count` and exits non-zero. Pass a value
+**above the current collection count** (the upload is non-idempotent, so the
+count grows across runs — use a safely large number like `99999`):
 
 ```bash
-docker compose exec kestra kestra flow execute platform_docs poc --inputs '{"expected_doc_count": 999}'
+# via API:
+curl -s -u "$KUSER:$KPASS" -X POST \
+  "http://localhost:8080/api/v1/executions/platform_docs/poc" -F "expected_doc_count=99999"
+# or the CLI:
+docker compose exec kestra kestra flow execute platform_docs poc --inputs '{"expected_doc_count": 99999}'
 ```
 
 ## Step 3 — assert the gate tripped and NO swap happened
