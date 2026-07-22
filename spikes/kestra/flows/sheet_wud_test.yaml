@@ -1,0 +1,66 @@
+id: sheet_wud_test
+namespace: platform_docs
+description: >-
+  Validate Google Sheets WRITE / UPDATE / DELETE via Kestra's native sheets plugin
+  on an isolated tab. WRITE 3 data rows (OVERWRITE), UPDATE one cell in place, then
+  DELETE the data rows (OVERWRITE with header-only — proves rows are cleared, not
+  just left stale). Non-destructive: touches only the kestra_rw_test tab.
+
+inputs:
+  - id: spreadsheet_id
+    type: STRING
+    defaults: "1-FEiLaWKaNAszN01yBeagGThPq-82JYMZMDqjCg8u1c"
+  - id: test_tab
+    type: STRING
+    defaults: "kestra_rw_test"
+
+pluginDefaults:
+  - type: io.kestra.plugin.scripts.shell.Commands
+    values:
+      taskRunner:
+        type: io.kestra.plugin.core.runner.Process
+  - type: io.kestra.plugin.googleworkspace.sheets.Load
+    values:
+      serviceAccount: "{{ secret('AIE_SERVICE_ACCOUNT') }}"
+      spreadsheetId: "{{ inputs.spreadsheet_id }}"
+      format: CSV
+
+tasks:
+  # WRITE — 3 data rows
+  - id: make_write
+    type: io.kestra.plugin.scripts.shell.Commands
+    outputFiles: [write.csv]
+    commands:
+      - printf 'id,name,status\n1,alpha,active\n2,beta,active\n3,gamma,active\n' > write.csv
+  - id: write
+    type: io.kestra.plugin.googleworkspace.sheets.Load
+    from: "{{ outputs.make_write.outputFiles['write.csv'] }}"
+    range: "{{ inputs.test_tab }}"
+    header: true
+    insertType: OVERWRITE
+
+  # UPDATE — change row 2's status cell (C3) in place
+  - id: make_update
+    type: io.kestra.plugin.scripts.shell.Commands
+    outputFiles: [update.csv]
+    commands:
+      - printf 'updated\n' > update.csv
+  - id: update
+    type: io.kestra.plugin.googleworkspace.sheets.Load
+    from: "{{ outputs.make_update.outputFiles['update.csv'] }}"
+    range: "{{ inputs.test_tab }}!C3"
+    header: false
+    insertType: UPDATE
+
+  # DELETE — overwrite with header only; if rows clear, the 3 data rows are gone
+  - id: make_delete
+    type: io.kestra.plugin.scripts.shell.Commands
+    outputFiles: [delete.csv]
+    commands:
+      - printf 'id,name,status\n' > delete.csv
+  - id: delete_rows
+    type: io.kestra.plugin.googleworkspace.sheets.Load
+    from: "{{ outputs.make_delete.outputFiles['delete.csv'] }}"
+    range: "{{ inputs.test_tab }}"
+    header: true
+    insertType: OVERWRITE
