@@ -1,0 +1,74 @@
+id: sheet_rw_test
+namespace: platform_docs
+description: >-
+  Capability test: validate Kestra can READ, WRITE, and UPDATE a Google Sheet via
+  the native googleworkspace plugin (no custom code). Reads the real 'submissions'
+  tab READ-ONLY, then round-trips an isolated 'kestra_rw_test' tab so the source
+  data is never touched. Intended as a capability probe for the aie9 submission-
+  evidence pipeline use case.
+
+inputs:
+  - id: spreadsheet_id
+    type: STRING
+    defaults: "1-FEiLaWKaNAszN01yBeagGThPq-82JYMZMDqjCg8u1c"
+  - id: source_tab
+    type: STRING
+    defaults: "submissions"
+  - id: test_tab
+    type: STRING
+    defaults: "kestra_rw_test"
+
+pluginDefaults:
+  - type: io.kestra.plugin.scripts.shell.Commands
+    values:
+      taskRunner:
+        type: io.kestra.plugin.core.runner.Process
+
+tasks:
+  # (1) READ — read a sample of the real submissions tab, read-only
+  - id: read_source
+    type: io.kestra.plugin.googleworkspace.sheets.ReadRange
+    serviceAccount: "{{ secret('GOOGLE_SERVICE_ACCOUNT') }}"
+    spreadsheetId: "{{ inputs.spreadsheet_id }}"
+    range: "{{ inputs.source_tab }}!A1:H4"
+
+  # (2) WRITE — overwrite the isolated test tab with an initial payload (status=pending)
+  - id: make_write_csv
+    type: io.kestra.plugin.scripts.shell.Commands
+    outputFiles:
+      - write.csv
+    commands:
+      - printf 'check,value,status\nwritten_by,kestra,pending\nexecution,{{ execution.id }},pending\n' > write.csv
+  - id: write_test
+    type: io.kestra.plugin.googleworkspace.sheets.Load
+    serviceAccount: "{{ secret('GOOGLE_SERVICE_ACCOUNT') }}"
+    from: "{{ outputs.make_write_csv.outputFiles['write.csv'] }}"
+    spreadsheetId: "{{ inputs.spreadsheet_id }}"
+    range: "{{ inputs.test_tab }}"
+    format: CSV
+    header: true
+    insertType: OVERWRITE
+
+  # (3) UPDATE — change the two status cells (C2:C3) from pending -> verified, in place
+  - id: make_update_csv
+    type: io.kestra.plugin.scripts.shell.Commands
+    outputFiles:
+      - update.csv
+    commands:
+      - printf 'verified\nverified\n' > update.csv
+  - id: update_test
+    type: io.kestra.plugin.googleworkspace.sheets.Load
+    serviceAccount: "{{ secret('GOOGLE_SERVICE_ACCOUNT') }}"
+    from: "{{ outputs.make_update_csv.outputFiles['update.csv'] }}"
+    spreadsheetId: "{{ inputs.spreadsheet_id }}"
+    range: "{{ inputs.test_tab }}!C2"
+    format: CSV
+    header: false
+    insertType: UPDATE
+
+  # (4) VERIFY — read the test tab back to confirm write + update landed
+  - id: verify
+    type: io.kestra.plugin.googleworkspace.sheets.ReadRange
+    serviceAccount: "{{ secret('GOOGLE_SERVICE_ACCOUNT') }}"
+    spreadsheetId: "{{ inputs.spreadsheet_id }}"
+    range: "{{ inputs.test_tab }}"
