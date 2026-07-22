@@ -9,6 +9,7 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
+    restart: unless-stopped
     environment:
       POSTGRES_DB: platform_docs
       POSTGRES_USER: kestra
@@ -26,6 +27,7 @@ services:
   kestra:
     image: kestra/kestra:v1.3.29   # PINNED (research-flagged) — NOT :latest. Standard tag bundles plugins (postgresql JDBC + googleworkspace); do NOT use the -no-plugins variant. v1.3.29 = v1.3 = latest-lts as of 2026-07-22.
     command: server standalone
+    restart: unless-stopped
     user: root
     depends_on:
       postgres:
@@ -42,7 +44,7 @@ services:
           storage:
             type: local
             local:
-              base-path: /tmp/kestra-storage
+              base-path: /kestra-storage   # persisted via the kestra_storage named volume (not ephemeral /tmp)
           security:
             basic-auth:
               enabled: true
@@ -57,8 +59,10 @@ services:
       - .env
     volumes:
       - ../../:/repo        # mount repo at /repo (NOT /app — that holds the kestra binary)
+      - kestra_storage:/kestra-storage   # persist internal storage (task logs/outputs) across restarts
     # NOTE: do not set working_dir; the image's /app WORKDIR holds the kestra binary.
     # Flow shell tasks `cd /repo` themselves (Process runner uses its own temp cwd).
 
 volumes:
   pg_spike:
+  kestra_storage:
