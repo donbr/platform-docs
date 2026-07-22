@@ -14,12 +14,12 @@ inputs:
 # Weekly refresh of the stats Sheet. DISABLED until a Google service account +
 # spreadsheet_id are configured (see the walkthrough). Remove `disabled: true` to arm.
 triggers:
+  # ARMED: read-only Sheet refresh, so not blocked by the idempotency issue (AGE-271).
   - id: weekly
     type: io.kestra.plugin.core.trigger.Schedule
-    disabled: true
-    cron: "0 4 * * 1"   # Mondays 04:00
+    cron: "0 4 * * 1"   # Mondays 04:00 UTC
     inputs:
-      spreadsheet_id: "__set_your_sheet_id__"
+      spreadsheet_id: "1zpZ4od1ZZJ6RID4TpNt3g_Iz9Cj-8jBmlj8zcxuDS-s"
 
 pluginDefaults:
   - type: io.kestra.plugin.scripts.shell.Commands
