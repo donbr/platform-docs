@@ -548,6 +548,12 @@ git commit -m "feat(spike): add reconciled Kestra flow (JDBC state, real command
 
 Design: a dedicated `postgres` service (not the shared `agent-memory-postgres`) — fully isolated, its own named volume, disposable. Kestra and the flow's JDBC tasks reach it over the compose network as `postgres:5432`; host-side `psql` reaches it at `localhost:5433`.
 
+> **Version pin (research-flagged, July 2026):** do NOT use `kestra/kestra:latest` — pin an explicit tag for reproducibility. Two specifics the research surfaced:
+> - Use the **`-full`** image variant (`kestra/kestra:<version>-full`) so the `io.kestra.plugin.jdbc.postgresql` plugin the flow's state tasks depend on is bundled; the slim base image ships fewer plugins.
+> - **Kestra 1.3+ bundles Java 25 inside the image**, so no host JDK is needed for this Docker-based spike. The Java-25 requirement only bites if you ever run the bare Kestra JAR outside Docker (not the case here) — but pin the version so a silent base-image bump can't change the runtime under you.
+>
+> `v1.3-full` is a placeholder for the current stable 1.3-line tag — **confirm the exact patch tag** on Docker Hub (`kestra/kestra` tags) or via Context7 (`kestra`) before the run, and record the resolved tag in the README.
+
 - [ ] **Step 1: Write the compose file**
 
 ```yaml
@@ -570,7 +576,7 @@ services:
       retries: 10
 
   kestra:
-    image: kestra/kestra:latest
+    image: kestra/kestra:v1.3-full   # PINNED (research-flagged) — NOT :latest. See "Version pin" note below.
     command: server standalone
     user: root
     depends_on:
@@ -721,17 +727,29 @@ git commit -m "test(spike): add circuit-breaker failure runbook (expected=999)"
 Run: `docker compose -f spikes/kestra/docker-compose.yml exec kestra kestra flow execute platform_docs poc`
 Expected: all tasks green through `alias_swap` and `record_run_success`.
 
-- [ ] **Step 2: Assert BOTH POC collections populated (>= 608)**
+- [ ] **Step 2: Assert BOTH POC collections are EXACTLY complete — the TPM-hold / no-silent-loss check**
+
+This is the research-flagged assertion. Because Kestra's concurrency is **flow-level, not token-aware** (Workstream 1 finding), the OpenAI 5M-TPM ceiling is held ENTIRELY by the in-script `--batch-size 25 --workers 2` caps plus task retries — Kestra itself does not throttle tokens. This step proves those settings held with zero silent batch loss (the original pain point).
 
 Run:
 ```bash
+# (a) exact counts must EQUAL the expected 608 (not merely >=). A short count = batches were silently dropped.
 for c in platform-docs-poc-v1 platform-docs-poc-fastembed-v1; do
   echo -n "$c: "
   curl -s -H "api-key: $QDRANT_API_KEY" -H "Content-Type: application/json" \
     -X POST "$QDRANT_API_URL/collections/$c/points/count" -d '{"exact":true}'
 done
 ```
-Expected: both `count >= 608`.
+Expected (a): both counts **exactly `608`**.
+
+Then (b) — confirm the upload scripts reported no dropped batches. In the Kestra UI (Executions → this run → Gantt), open the `upload_openai` and `upload_fastembed` task logs and read the tail: each ends with `Successful: N documents`. Confirm **N equals that task's uploaded total and there is NO `Failed: <n> batches` line with n>0** (the silent-skip path in `upload_to_qdrant*.py`). Equivalent API check:
+```bash
+# tail the two upload tasks' logs and look for any non-zero failed-batch line
+curl -s -H "api-key: $QDRANT_API_KEY" "http://localhost:8080/api/v1/executions/search?namespace=platform_docs&flowId=poc&size=1" >/dev/null
+# then inspect logs in the UI; or: docker compose ... logs kestra | grep -E 'Successful:|Failed: [1-9]'
+docker compose -f spikes/kestra/docker-compose.yml logs kestra 2>/dev/null | grep -E 'Successful:|Failed: [1-9]' | tail -20
+```
+Expected (b): `Successful:` lines present for both uploads; **no `Failed: [1-9]…` line**. If (a) is short or (b) shows failures, the TPM/gRPC settings did not hold — drop to `--batch-size 10 --workers 1` for the large source (Supabase) per CLAUDE.md "Pitfall 6" and re-run before this step counts as passing. **This is the empirical proof that the orchestrated pipeline fixed the silent-skip bug — success criterion #1.**
 
 - [ ] **Step 3: Assert both sandbox aliases point at their POC collections**
 
@@ -765,6 +783,6 @@ git commit -m "test(spike): add end-to-end happy-path runbook"
 ## Notes for the executor
 
 - **State DB (decided):** a dedicated local Docker Postgres (`postgres` service in Task 6's compose, `platform_docs` db, host port `5433`) — NOT the shared `agent-memory-postgres` container (that belongs to another project; reusing it would couple lifecycles and share its connection budget). Both `orchestration` and `kestra_system` schemas live in this local db. Cloud Supabase is deferred to Sub-project B, where only the connection URL changes.
-- **Reconciliation record:** state is written by native JDBC-Query tasks (adopted from the reviewed draft) rather than a Python `state.py` — fewer moving parts, more Kestra-idiomatic, and it removes the `psycopg` dependency. The tradeoff: the flow needs the postgresql plugin (bundled in `kestra/kestra:latest`) and a base64 Kestra secret for the connection (Task 6). The failure test uses the draft's cleaner `expected_doc_count=999` override instead of a batch-size hack.
+- **Reconciliation record:** state is written by native JDBC-Query tasks (adopted from the reviewed draft) rather than a Python `state.py` — fewer moving parts, more Kestra-idiomatic, and it removes the `psycopg` dependency. The tradeoff: the flow needs the postgresql plugin (bundled in the pinned `kestra/kestra:<version>-full` image — Task 6) and a base64 Kestra secret for the connection (Task 6). The failure test uses the draft's cleaner `expected_doc_count=999` override instead of a batch-size hack.
 - **Command layer is verified against the repo** — real script names, `--sources` as `nargs="+"` (space-separated, case-sensitive `OpenAI Vue Supabase`), `--collection`, and mandatory `--batch-size 25 --workers 2`. There is no `--model` flag and no `scripts/upload.py`/`verify.py`/`alias_swap.py` in `scripts/` (the last two are created under `spikes/kestra/`).
 - **Kestra version drift** is expected at the YAML property level (see Task 5 checklist); confirm via Context7 (`kestra`) at `flow validate` time, not by assuming the plan is wrong.
