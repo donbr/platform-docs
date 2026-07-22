@@ -6,6 +6,8 @@
 
 > **Currency caveat:** pricing/license cells reflect live sources fetched on 2026-07-22. Cells the adversarial pass could not confirm current are marked ⚠ and detailed in "Confidence & caveats". For an OSS-first adoption the free self-hosted edition is what matters; managed pricing is secondary. Verify any ⚠ figure with the vendor before committing spend.
 
+> **Update (2026-07-22, post-spike): the operative decision is Kestra.** The paper eval below ranked Prefect 3 first on the raw ETL core, but after a hands-on Kestra spike (validated end-to-end — see the [retrospective](../retrospectives/2026-07-22-kestra-spike-retrospective.md)) and confirmation that **Google Sheets read/write is a standing requirement** for adjacent (grading) workflows, Kestra is the chosen ETL orchestrator. Rationale in the new [Prefect vs Kestra head-to-head](#prefect-vs-kestra--head-to-head-post-spike) below. Prefect remains the pre-vetted fallback.
+
 ---
 
 ## TL;DR recommendation
@@ -17,6 +19,45 @@
 **"Do we even need an orchestrator?" baseline:** a `cron` + a retry/rate-limit wrapper around the existing scripts would fix pains (1) and (2) cheaply, but leaves pain (3) — observability/run-history/staleness — entirely unsolved, which is the whole reason to adopt a tool.
 
 **Durable-execution layer, FUTURE (Sub-project C) — watch: DBOS (MIT).** Explicitly **not** decided now. DBOS is the standout of the durable trio (scored 5/5): MIT-licensed library (no cluster), Postgres-native state (satisfies the external-Postgres requirement), Postgres-backed queues giving exactly-once + global rate limiting, and shipping agent integrations (OpenAI Agents SDK, Google ADK, MCP). It could plausibly collapse *both* the ETL layer and the future agentic source-discovery/repair layer onto one Postgres. **Temporal (MIT)** remains the heavyweight reference engine if hard determinism/replay is required. Decide this separately after the ETL choice is bedded in.
+
+## Prefect vs Kestra — head-to-head (post-spike)
+
+The operative choice is between these two. **Read this asymmetry first:** Kestra
+was **built and run end-to-end** (Sub-project B — ~6 live executions incl. the
+failure test); Prefect was **not spiked** — its column is entirely paper-based
+(research fan-out + docs). So Kestra's cells are *observed*, Prefect's are
+*claimed*. A short Prefect spike is the honest way to make the ETL-core cells
+below equally concrete; until then, weight the evidence accordingly.
+
+| Dimension | Prefect 3 (paper) | Kestra (spiked ✓) | Edge |
+|---|---|---|---|
+| License / OSS core | Apache-2.0 | Apache-2.0 | tie |
+| Evidence basis | docs/research only | **validated hands-on** | Kestra (confidence) |
+| OpenAI TPM control | server-side **token-aware** global rate limit (`slot_decay`) | flow-level only; TPM held **in-script** (`--batch-size/--workers`) | **Prefect** |
+| Python ergonomics | in-process `@flow`/`@task`, typed returns | YAML + subprocess (`cd /repo && uv run …`) | **Prefect** |
+| Promotion gate (blue-green) | `pause`/`suspend_flow_run` | Pause task + verify gate — **proven to block a bad swap in the spike** | **Kestra (proven)** |
+| **Google Sheets/Drive R/W** | none first-party (DIY `gspread`/API) | **first-party `plugin-googleworkspace` — native read + write**, bundled | **Kestra** ← decisive here |
+| Observability / run history | full UI + Postgres | full UI + Postgres — **validated** | tie |
+| Ops footprint | server + worker + Postgres | 1 container + Postgres | slight Kestra |
+| Setup friction | generally smooth Python (not measured here) | **7 one-time snags** hit in the spike (1.x sharp edges) | Prefect (asymmetric evidence) |
+| Idempotency | not solved — your code | not solved — your code (spike proved re-run duplication) | tie (neither) |
+| Auth (OSS) | configurable | basic auth **enforced by default**; UI-init friction | mixed |
+
+**Decision — Kestra, with eyes open.** Prefect genuinely wins the *raw ETL core*
+(token-aware rate limiting and in-process Python ergonomics). But: (a) the TPM
+ceiling and idempotency are **code responsibilities in both** — Prefect's edge
+there narrows what you actually gain; (b) **Google Sheets read/write is a
+confirmed standing requirement** (grading workflows), and Kestra's native
+Workspace plugin is a real, first-party differentiator Prefect can't match
+without you writing and maintaining the client; and (c) Kestra is now
+**de-risked by an end-to-end spike**, while Prefect is not.
+
+Net: adopt **Kestra** as the ETL orchestrator; keep **Prefect** as the pre-vetted
+fallback if in-process Python ergonomics or server-side token-aware rate limiting
+later become the dominant constraint. **Recommended next step to close the
+asymmetry:** a small Prefect spike (wrap the same three scripts, run the same
+gate) so the ETL-core cells are empirical rather than paper — cheap insurance
+before fully committing.
 
 ## ETL-layer comparison matrix
 
