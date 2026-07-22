@@ -16,7 +16,7 @@ services:
       retries: 10
 
   kestra:
-    image: kestra/kestra:v1.3-full   # PINNED (research-flagged) — NOT :latest; -full bundles the postgresql JDBC plugin. Confirm exact patch tag on Docker Hub.
+    image: kestra/kestra:v1.3.29   # PINNED (research-flagged) — NOT :latest. Standard tag bundles plugins (postgresql JDBC + googleworkspace); do NOT use the -no-plugins variant. v1.3.29 = v1.3 = latest-lts as of 2026-07-22.
     command: server standalone
     user: root
     depends_on:

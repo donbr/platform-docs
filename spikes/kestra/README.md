@@ -56,11 +56,12 @@ Reset everything (Postgres uses a named volume, so it survives `down`):
 
 ## Version pin
 
-Do **not** use `kestra/kestra:latest`. Pin an explicit tag; use the **`-full`**
-variant so the `io.kestra.plugin.jdbc.postgresql` and `googleworkspace` plugins
-are bundled. Kestra 1.3+ bundles Java 25 inside the image (no host JDK needed for
-this Docker setup). `v1.3-full` is a placeholder — confirm the current 1.3-line
-patch tag on Docker Hub (`kestra/kestra` tags) and record it here.
+Do **not** use `kestra/kestra:latest`. Pin an explicit tag. The **standard**
+image (`v1.3.29`, aka `v1.3` / `latest-lts`, ~3 GB) already bundles the plugins
+we need (`io.kestra.plugin.jdbc.postgresql` + `googleworkspace`) — do **not** use
+the lighter `-no-plugins` variant. Kestra 1.3+ bundles Java 25 inside the image
+(no host JDK needed). Re-check the current 1.3-line patch tag on Docker Hub
+(`kestra/kestra` tags) before running and bump the pin if needed.
 
 ## Google Drive reporting (optional)
 
