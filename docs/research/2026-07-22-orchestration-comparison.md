@@ -6,6 +6,8 @@
 
 > **Currency caveat:** pricing/license cells reflect live sources fetched on 2026-07-22. Cells the adversarial pass could not confirm current are marked ⚠ and detailed in "Confidence & caveats". For an OSS-first adoption the free self-hosted edition is what matters; managed pricing is secondary. Verify any ⚠ figure with the vendor before committing spend.
 
+> **Update (2026-07-22, post-spikes): the operative decision is Kestra.** The original paper eval below ranked Prefect 3 first on the raw ETL core. Both finalists were then **spiked end-to-end against the same pipeline** — Kestra (`spikes/kestra/`, [retrospective](../retrospectives/2026-07-22-kestra-spike-retrospective.md)) and Prefect (`spikes/prefect/`). The [Prefect vs Kestra head-to-head](#prefect-vs-kestra--head-to-head-both-spiked) below is now fully empirical: the gap is narrower than the paper implied (Prefect's ergonomics + free observability are real; its token-aware TPM edge needs an upload rewrite to realize), but **Google Sheets read/write is a confirmed requirement** and Kestra's native Workspace plugin + default auth tip it. Prefect remains the pre-vetted fallback.
+
 ---
 
 ## TL;DR recommendation
@@ -17,6 +19,41 @@
 **"Do we even need an orchestrator?" baseline:** a `cron` + a retry/rate-limit wrapper around the existing scripts would fix pains (1) and (2) cheaply, but leaves pain (3) — observability/run-history/staleness — entirely unsolved, which is the whole reason to adopt a tool.
 
 **Durable-execution layer, FUTURE (Sub-project C) — watch: DBOS (MIT).** Explicitly **not** decided now. DBOS is the standout of the durable trio (scored 5/5): MIT-licensed library (no cluster), Postgres-native state (satisfies the external-Postgres requirement), Postgres-backed queues giving exactly-once + global rate limiting, and shipping agent integrations (OpenAI Agents SDK, Google ADK, MCP). It could plausibly collapse *both* the ETL layer and the future agentic source-discovery/repair layer onto one Postgres. **Temporal (MIT)** remains the heavyweight reference engine if hard determinism/replay is required. Decide this separately after the ETL choice is bedded in.
+
+## Prefect vs Kestra — head-to-head (both spiked)
+
+**Both are now validated end-to-end** against the *same* pipeline, POC collections,
+and Qdrant-side helpers — only the orchestrator differs. Kestra: Sub-project B
+(`spikes/kestra/`, ~6 live runs). Prefect: this comparison spike (`spikes/prefect/`,
+4 live runs). Every cell below is now *observed*, not claimed.
+
+| Dimension | Prefect 3 (spiked ✓) | Kestra (spiked ✓) | Edge |
+|---|---|---|---|
+| License / OSS core | Apache-2.0 | Apache-2.0 | tie |
+| Runs the pipeline + gate | ✅ happy path + failure test (gate blocked promote) | ✅ happy path + failure test (gate blocked swap) | tie |
+| Setup friction | **light** — `pip install` + `prefect server start` + one Postgres URL; came up clean | **7 one-time snags** (mount clobber, storage cfg, UI auth-init, plugin drift, run_id type, cwd/venv) | **Prefect** |
+| Python ergonomics | **`@flow`/`@task`; gate is a plain `raise`; helpers imported in-process (no subprocess)** | YAML + subprocess (`cd /repo && uv run …`) | **Prefect** |
+| Run history / telemetry | **free — auto-recorded in Postgres; no custom table** | hand-rolled `pipeline_runs` + JDBC-Query tasks | **Prefect** |
+| Promotion gate (blue-green) | proven — `raise` → flow Failed → promote skipped | proven — verify exit 1 → alias_swap skipped | tie (both proven) |
+| **Google Sheets/Drive R/W** | **none first-party** (DIY `gspread`/API) | **first-party `plugin-googleworkspace` — native read + write**, bundled | **Kestra** ← decisive here |
+| Auth (OSS, out of the box) | **none** — server open on :4200 | **basic auth enforced by default** (UI-init friction) | **Kestra** |
+| OpenAI TPM control | token-aware `slot_decay` **exists — but not realized by wrapping** (see below) | flow-level only; TPM held in-script | Prefect *only if you rewrite the upload* |
+| Idempotency | not solved — same script-level duplication (628→1256→1884) | not solved — same | tie (neither; orchestrator-independent) |
+| Ops footprint | server + Postgres (single `prefect server start`) | 1 container + Postgres | tie |
+
+### What the Prefect spike changed vs the paper eval
+
+- **Prefect's ergonomics and observability advantages are real and confirmed.** Nicer Python (the gate is one `raise`; `verify`/`alias_swap` imported as functions, no shelling out), lighter setup, and — the standout — **run history for free**: Prefect's server logged all four runs to Postgres with zero custom telemetry code, where Kestra needed an `orchestration.pipeline_runs` table plus JDBC-Query tasks.
+- **Prefect's headline TPM advantage did NOT materialize from "wrapping the scripts."** Because the spike subprocesses the existing `upload_to_qdrant*.py` (the same near-verbatim wrap Kestra used), Prefect's `slot_decay` token-aware rate limit never touches the embedding calls — you land in the *identical* in-script-batching situation as Kestra. Prefect's TPM edge only appears if you **reimplement the embed/upload loop in-process** around `rate_limit(...)`. So the paper's "delete the silent try/except and you're done" undersold the work needed to actually get token-aware limiting.
+- **Two points move toward Kestra that the paper missed:** Prefect OSS ships **no auth** (open API on :4200), whereas Kestra 1.x enforces basic auth; and Kestra's **native Sheets/Drive** remains unmatched.
+
+### Decision — Kestra, and now the reasoning is symmetric
+
+The gap is **narrower than the paper suggested**, and it cuts both ways:
+- If Google Sheets/Drive did **not** matter, I would now lean **Prefect** — the ergonomics + free observability are genuinely better, and its TPM edge (though it needs a rewrite) is a real ceiling-raiser.
+- But **Sheets read/write is a confirmed standing requirement** (grading workflows), Kestra's first-party Workspace plugin is a real differentiator, Kestra enforces auth out of the box, and both tools are now equally de-risked.
+
+Net: **adopt Kestra** as the ETL orchestrator. Keep **Prefect** as the pre-vetted fallback — and if you ever need genuine token-aware TPM limiting, know that it means an in-process upload rewrite in *either* tool (Prefect just gives you the primitive for it).
 
 ## ETL-layer comparison matrix
 

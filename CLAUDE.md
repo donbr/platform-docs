@@ -123,7 +123,22 @@ data/
 - **HTTP tests** - Transport layer validation
 - Run tests before deployment to catch issues early
 
+## Orchestration (Kestra spike)
+
+The ETL can be run **unattended** under Kestra (chosen orchestrator; see the head-to-head vs Prefect in the research doc below). The spike lives in `spikes/kestra/` and is a validated, local, self-contained proof-of-concept — **not yet the production path**.
+
+- **What it does:** a Kestra flow (`spikes/kestra/flows/platform_docs_poc.yaml`) runs download → split → upload (both collections) → **verify gate** → alias promote, with task retries, run telemetry in Postgres (`orchestration.pipeline_runs`), and optional Google Drive reporting. The verify gate blocks the alias swap on any doc-count shortfall (proven in the failure runbook).
+- **Production safety:** the spike writes to **POC collections only** (`platform-docs-poc-v1` / `-fastembed-v1`) behind sandbox aliases (`*-poc-active`). It never touches the production `*-v2` collections or the `platform-docs` / `platform-docs-fastembed` aliases. `alias_swap.py` refuses any non-sandbox alias.
+- **Run it:** see `spikes/kestra/README.md`. Stack is `docker compose -f spikes/kestra/docker-compose.yml` (local Postgres on 127.0.0.1:5433 + Kestra `v1.3.29` on 127.0.0.1:8080). Dashboard: http://localhost:8080/ui/ (Kestra 1.x enforces basic auth — creds in the gitignored `spikes/kestra/.env`).
+- **Gotchas discovered (see the retrospective):** mount the repo at `/repo` not `/app`; flow shell tasks `cd /repo` and use `UV_PROJECT_ENVIRONMENT`; `pipeline_runs.run_id` is `text` (Kestra `execution.id` is not a UUID); Kestra 1.x needs `kestra.storage.type` and a UI first-run admin setup. Kestra's concurrency is **flow-level, not token-aware** — the OpenAI 5M TPM ceiling is still held by the in-script `--batch-size 25 --workers 2`. The upload is **not idempotent** (random point IDs) — re-runs append duplicates; reset the POC collections between runs or key by `doc_id` for production.
+- **Google Drive/Sheets:** Kestra ships a first-party `plugin-googleworkspace` (native Sheets read/write, Drive upload) — a key reason it was chosen. The Drive report task is wired but gated (`upload_to_drive: false`) pending a Google **service account**.
+
 ## Reference Docs
 
 - `docs/DEPLOYMENT_GUIDE.md` - FastMCP Cloud deployment details
 - `docs/VECTOR_DB_REFRESH_GUIDE.md` - Full-corpus refresh runbook, including the batch-size/worker tuning and silent-skip recovery pattern (Pitfall 6)
+- `docs/specs/2026-07-22-orchestration-evaluation-design.md` - Orchestration evaluation & Kestra spike design
+- `docs/plans/2026-07-22-kestra-spike.md` - Task-by-task Kestra spike implementation plan
+- `docs/research/2026-07-22-orchestration-comparison.md` - July-2026 orchestrator comparison + empirical Prefect-vs-Kestra head-to-head
+- `docs/retrospectives/2026-07-22-kestra-spike-retrospective.md` - Hands-on assessment, production-readiness checklist, and bugs the spike surfaced
+- `spikes/kestra/README.md` / `spikes/prefect/README.md` - How to run each orchestration spike

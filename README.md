@@ -42,6 +42,9 @@ platform-docs/
 │   └── upload_to_qdrant_fastembed.py  # Stage 3b: Upload with FastEmbed
 ├── tests/
 │   └── test_mcp_server.py       # In-memory MCP tests
+├── spikes/                      # Orchestration proofs-of-concept
+│   ├── kestra/                  # Kestra flow + local stack (chosen orchestrator)
+│   └── prefect/                 # Prefect equivalent (for the head-to-head)
 ├── data/                        # ETL data (gitignored)
 │   ├── raw/                     # Downloaded llms.txt files
 │   ├── interim/pages/           # Split documentation pages
@@ -58,6 +61,20 @@ platform-docs/
 | **Split** | `split_llms_pages.py` | `data/interim/pages/{source}/*.json` |
 | **Upload** | `upload_to_qdrant.py` | Qdrant `platform-docs` collection |
 | **Upload (Free)** | `upload_to_qdrant_fastembed.py` | Qdrant `platform-docs-fastembed` collection |
+
+## Orchestration (Kestra)
+
+The ETL can run **unattended** under [Kestra](https://kestra.io) — the chosen orchestrator after a hands-on evaluation against Prefect. A validated, local proof-of-concept lives in [`spikes/kestra/`](spikes/kestra/README.md): it runs download → split → upload → **verify gate** → alias promote, with retries, run history in Postgres, and optional Google Drive reporting. It writes to **sandbox POC collections only** — production collections and aliases are never touched.
+
+```bash
+cd spikes/kestra
+cp .env.example .env            # fill in Qdrant/OpenAI keys + basic-auth creds
+docker compose up -d postgres && psql "$PLATFORM_DOCS_DB_URL" -f sql/001_orchestration_schema.sql
+docker compose up -d            # Kestra dashboard → http://localhost:8080/ui/
+# load + run the flow: see spikes/kestra/README.md
+```
+
+Why Kestra over Prefect (both spiked end-to-end): native Google Sheets/Drive plugin, auth enforced by default, and a lighter single-container footprint — full analysis in [`docs/research/2026-07-22-orchestration-comparison.md`](docs/research/2026-07-22-orchestration-comparison.md) and the [retrospective](docs/retrospectives/2026-07-22-kestra-spike-retrospective.md).
 
 ## MCP Server Tools
 

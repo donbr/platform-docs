@@ -39,3 +39,6 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Prefect spike runtime (logs, local profile with creds)
+spikes/prefect/.prefect/
