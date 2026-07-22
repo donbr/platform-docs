@@ -1,0 +1,146 @@
+id: prod_refresh
+namespace: platform_docs
+description: >-
+  PRODUCTION blue-green refresh of the OpenAI platform-docs collection. Builds a
+  fresh versioned collection from the current corpus, verifies the full count,
+  then (only with confirm=true) re-points the production `platform-docs` alias.
+  The old collection is left in place as an instant rollback. OpenAI collection
+  only — the FastEmbed collection is out of scope for this flow.
+
+inputs:
+  - id: target_collection
+    type: STRING
+    defaults: platform-docs-v3
+  - id: rebuild
+    type: BOOLEAN
+    defaults: true   # false = skip download/split/upload and just verify+promote an existing target
+  - id: confirm
+    type: BOOLEAN
+    defaults: false  # MUST be true to actually re-point the production alias (safety gate)
+
+variables:
+  prod_alias: "platform-docs"
+  # Bulk sources use batch 25/workers 2; Anthropic (large docs) uploads separately
+  # at 10/1 per VECTOR_DB_REFRESH_GUIDE.md "Pitfall 6".
+  bulk_sources: "FastMCP GoogleADK Grok Kestra LangChain McpProtocol OpenAI Prefect PydanticAI Supabase Temporal Vue Zep"
+
+pluginDefaults:
+  - type: io.kestra.plugin.jdbc.postgresql.Query
+    values:
+      url: "{{ secret('PLATFORM_DOCS_JDBC_URL') }}"
+  - type: io.kestra.plugin.scripts.shell.Commands
+    values:
+      env:
+        UV_PROJECT_ENVIRONMENT: /tmp/kestra-venv
+
+tasks:
+  - id: record_run_start
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    sql: |
+      INSERT INTO orchestration.pipeline_runs
+        (run_id, flow, stage, status, environment, collection_version)
+      VALUES
+        ('{{ execution.id }}', '{{ flow.id }}', 'download', 'running', 'prod',
+         '{{ inputs.target_collection }}');
+
+  # --- Build phase (skipped when rebuild=false) ---
+  - id: reset_target
+    type: io.kestra.plugin.scripts.shell.Commands
+    runIf: "{{ inputs.rebuild }}"
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      # Delete the (non-live) target so the non-idempotent upload starts clean.
+      - cd /repo && uv run python -c "import os; from qdrant_client import QdrantClient; c=QdrantClient(url=os.environ['QDRANT_API_URL'], api_key=os.environ['QDRANT_API_KEY']); c.delete_collection('{{ inputs.target_collection }}') if c.collection_exists('{{ inputs.target_collection }}') else None; print('reset {{ inputs.target_collection }}')"
+
+  - id: download_sources
+    type: io.kestra.plugin.scripts.shell.Commands
+    runIf: "{{ inputs.rebuild }}"
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    retry:
+      type: constant
+      interval: PT30S
+      maxAttempt: 3
+    commands:
+      - cd /repo && uv run scripts/download_llms_raw.py
+
+  - id: split_docs
+    type: io.kestra.plugin.scripts.shell.Commands
+    runIf: "{{ inputs.rebuild }}"
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - cd /repo && uv run scripts/split_llms_pages.py
+
+  - id: upload_bulk
+    type: io.kestra.plugin.scripts.shell.Commands
+    runIf: "{{ inputs.rebuild }}"
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    retry:
+      type: constant
+      interval: PT1M
+      maxAttempt: 3
+    commands:
+      - cd /repo && uv run scripts/upload_to_qdrant.py --sources {{ vars.bulk_sources }} --collection {{ inputs.target_collection }} --batch-size 25 --workers 2
+
+  - id: upload_anthropic
+    type: io.kestra.plugin.scripts.shell.Commands
+    runIf: "{{ inputs.rebuild }}"
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    retry:
+      type: constant
+      interval: PT1M
+      maxAttempt: 3
+    commands:
+      - cd /repo && uv run scripts/upload_to_qdrant.py --sources Anthropic --collection {{ inputs.target_collection }} --batch-size 10 --workers 1
+
+  # --- Verify + promote (always) ---
+  - id: compute_expected
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - cd /repo && uv run python -m spikes.kestra.emit_expected --all
+
+  - id: update_state_verifying
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    sql: |
+      UPDATE orchestration.pipeline_runs
+      SET stage = 'verify', docs_expected = {{ outputs.compute_expected.vars.count }}
+      WHERE run_id = '{{ execution.id }}';
+
+  # THE GATE: non-zero exit fails the flow -> the production swap below never runs.
+  - id: verify_counts
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - cd /repo && uv run python -m spikes.kestra.verify_counts --collection {{ inputs.target_collection }} --expected {{ outputs.compute_expected.vars.count }}
+
+  - id: swap_prod_alias
+    type: io.kestra.plugin.scripts.shell.Commands
+    runIf: "{{ inputs.confirm }}"
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - cd /repo && uv run python -m spikes.kestra.prod_alias_swap --alias {{ vars.prod_alias }} --collection {{ inputs.target_collection }} --expected {{ outputs.compute_expected.vars.count }} --confirm true
+
+  - id: record_run_success
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    sql: |
+      UPDATE orchestration.pipeline_runs
+      SET status = 'success', stage = 'alias_swap', finished_at = NOW(),
+          alias_swapped_at = {{ inputs.confirm ? 'NOW()' : 'NULL' }},
+          docs_uploaded = {{ outputs.compute_expected.vars.count }}
+      WHERE run_id = '{{ execution.id }}';
+
+errors:
+  - id: record_run_failure
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    sql: |
+      UPDATE orchestration.pipeline_runs
+      SET status = 'failed', finished_at = NOW(), error = 'prod refresh failed before promotion'
+      WHERE run_id = '{{ execution.id }}';
