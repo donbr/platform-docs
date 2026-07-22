@@ -1,0 +1,43 @@
+id: drive_write_proof
+namespace: platform_docs
+description: >-
+  Drive write-proof: confirm the AIE SA (aie-workspace@aiec1-grading, Content
+  Manager on the GradingDrive Shared drive) can CREATE a file via Kestra's native
+  drive.Upload, then clean up by TRASHING it. Trash (not permanent delete) is the
+  Shared-drive-appropriate cleanup: drive.Delete does a permanent delete, which
+  Shared drives restrict (canDeleteChildren: false). Leaves nothing behind.
+
+inputs:
+  - id: folder_id
+    type: STRING
+    defaults: "0AH60sOta4aSZUk9PVA"   # GradingDrive (Shared drive) root — SA is Content Manager
+
+pluginDefaults:
+  - type: io.kestra.plugin.scripts.shell.Commands
+    values:
+      taskRunner:
+        type: io.kestra.plugin.core.runner.Process
+
+tasks:
+  - id: make_file
+    type: io.kestra.plugin.scripts.shell.Commands
+    outputFiles:
+      - proof.txt
+    commands:
+      - printf 'kestra drive write-proof exec=%s\n' "{{ execution.id }}" > proof.txt
+
+  # CREATE — native drive.Upload into the Shared drive
+  - id: upload
+    type: io.kestra.plugin.googleworkspace.drive.Upload
+    serviceAccount: "{{ secret('AIE_SERVICE_ACCOUNT') }}"
+    from: "{{ outputs.make_file.outputFiles['proof.txt'] }}"
+    name: "kestra-write-proof-{{ execution.id }}.txt"
+    parents:
+      - "{{ inputs.folder_id }}"
+    contentType: "text/plain"
+
+  # TRASH — soft-delete cleanup (no native trash task; drive.Delete is permanent-only)
+  - id: trash
+    type: io.kestra.plugin.scripts.shell.Commands
+    commands:
+      - cd /repo && uv run --with google-auth --with google-api-python-client python -m spikes.kestra.drive_trash --file-id "{{ outputs.upload.file.id }}"
