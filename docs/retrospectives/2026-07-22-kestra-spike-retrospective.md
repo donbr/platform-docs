@@ -37,14 +37,29 @@ Seven one-time snags surfaced during bring-up, all now fixed and documented:
 
 Takeaway: Kestra 1.x has sharp edges and real version drift. Budget ~a day for a first production stand-up, not an hour.
 
+## Stability improvements applied (2026-07-22)
+
+Low-risk hardening already committed to `spikes/kestra/`:
+
+- **`restart: unless-stopped`** on both services — the stack now survives Docker/host restarts.
+- **Persistent Kestra internal storage** — moved off ephemeral `/tmp` to the `kestra_storage` named volume, so task logs/outputs survive container recreation (run metadata was already durable in Postgres).
+- **Cron trigger wired** (`Schedule`, `0 3 * * *`) but **`disabled: true`** — ready for unattended nightly runs, off until idempotency is fixed (else it would append duplicates every night).
+- README documents the full **startup / shutdown / reset** lifecycle (`stop` / `up` / `down` / `down -v`).
+
 ## Production-readiness checklist (before Sub-project B cutover)
 
-1. **Replace the bind-mount + in-container `uv`** with a purpose-built image (repo + deps baked in) or a Docker/K8s task runner. The mount is a dev convenience and carries the secret-exposure surface flagged in review.
-2. **Fix idempotency first** — upsert by `doc_id` so re-runs are safe.
-3. **Real secrets management** (not a repo-mounted `.env`) and **failure alerting** (Slack/email task).
+1. **Fix idempotency first** — upsert by `doc_id` so re-runs (and the nightly cron) are safe; only then enable the Schedule trigger.
+2. **Replace the bind-mount + in-container `uv`** with a purpose-built image (repo + deps baked in) or a Docker/K8s task runner. The mount is a dev convenience, carries the secret-exposure surface flagged in review, and caused root-owned-file pollution of `data/`.
+3. **Real secrets management** (not a repo-mounted `.env`) and **failure alerting** — a Kestra notification task (Slack/email) on the flow's `errors` path.
 4. **Solve non-interactive auth init** for reproducible headless/CI deploys.
-5. Point state at managed Postgres (trivial URL swap) and actually exercise the scheduler.
-6. Pin the exact image version; document the Java-25-in-image detail.
+5. Point state at **managed Postgres** (trivial URL swap) and back it up (it holds both Kestra metadata and the run telemetry).
+6. Pin the exact image version (done: `v1.3.29`); document the Java-25-in-image detail (done).
+7. Add JVM **resource limits** (`mem_limit`) and a flow-level **timeout/SLA**.
+8. **Build the documentation-stats Google Sheet** (see below) — the highest-value use of Kestra's native Workspace plugin.
+
+## Recommended feature: a documentation-stats Google Sheet
+
+There is currently **no** corpus-summary Sheet — the only Drive output is a per-run POC-count markdown file. A scheduled Kestra flow using the native `plugin-googleworkspace` `sheets.*` tasks should **read the manifests + live collections and upsert a Sheet** with one row per source: `source`, `source_url`, `doc_count`, `last_download_date`, `collection_version`, `last_refreshed`. This is exactly the integration Kestra was chosen for, gives non-technical stakeholders live freshness visibility, and needs only the Google service account already required for Drive reporting.
 
 ## Bugs found for the wider repo (value beyond the spike)
 

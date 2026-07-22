@@ -66,13 +66,27 @@ platform-docs/
 
 The ETL can run **unattended** under [Kestra](https://kestra.io) — the chosen orchestrator after a hands-on evaluation against Prefect. A validated, local proof-of-concept lives in [`spikes/kestra/`](spikes/kestra/README.md): it runs download → split → upload → **verify gate** → alias promote, with retries, run history in Postgres, and optional Google Drive reporting. It writes to **sandbox POC collections only** — production collections and aliases are never touched.
 
+**Startup** (first time):
+
 ```bash
 cd spikes/kestra
 cp .env.example .env            # fill in Qdrant/OpenAI keys + basic-auth creds
 docker compose up -d postgres && psql "$PLATFORM_DOCS_DB_URL" -f sql/001_orchestration_schema.sql
 docker compose up -d            # Kestra dashboard → http://localhost:8080/ui/
-# load + run the flow: see spikes/kestra/README.md
+# First run only: open the dashboard and complete the one-time admin setup
+# (Kestra 1.x). Then load + run the flow — see spikes/kestra/README.md.
 ```
+
+**Shutdown / reset:**
+
+```bash
+docker compose stop             # pause the stack (state + storage preserved)
+docker compose up -d            # resume where you left off (restart: unless-stopped survives reboots)
+docker compose down             # stop & remove containers (named volumes kept — DB + Kestra storage persist)
+docker compose down -v          # full teardown, wipes the Postgres + Kestra-storage volumes
+```
+
+Run history, telemetry, and Kestra's internal storage persist across restarts via named volumes; only `down -v` discards them.
 
 Why Kestra over Prefect (both spiked end-to-end): native Google Sheets/Drive plugin, auth enforced by default, and a lighter single-container footprint — full analysis in [`docs/research/2026-07-22-orchestration-comparison.md`](docs/research/2026-07-22-orchestration-comparison.md) and the [retrospective](docs/retrospectives/2026-07-22-kestra-spike-retrospective.md).
 
