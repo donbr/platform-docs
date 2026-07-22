@@ -86,6 +86,19 @@ Not a matrix column above, but decision-relevant given adjacent workflows that e
 
 Sources: [kestra-io/plugin-googleworkspace](https://github.com/kestra-io/plugin-googleworkspace), [Kestra — Connect Google Sheets](https://kestra.io/docs/how-to-guides/google-sheets), [Kestra — Google Drive plugin](https://kestra.io/plugins/plugin-googleworkspace/drive), [prefect-gcp docs (no Sheets/Drive)](https://docs.prefect.io/integrations/prefect-gcp), [prefect-google-sheets (community, 2.0-era)](https://stefanocascavilla.github.io/prefect-google-sheets/).
 
+### The "for grading pipelines" lens (added 2026-07-22)
+
+The matrix above ranks Prefect ahead on the *ETL core*, and for a Supabase-landing, content-hash-idempotent write node in isolation that ranking holds. **But judged as a grading pipeline, the decision inverts — and this is the correct altitude to judge at.** A grading pipeline's *purpose* is a Google-Workspace feedback loop: read submissions from Sheets/Drive → grade → write packages/grades/feedback back to Drive → students & peer-supporters read them. Every high-value hop is a Workspace hop; the Supabase evidence-write is one internal node, not the reason the pipeline exists. Choosing the orchestrator on that one node's tidiness is optimizing the wrong thing.
+
+On the axis that matters for grading — **Drive/Sheets access + feedback-loop velocity** — Kestra wins, and it is now empirically nailed down, not paper:
+
+- **Validated end-to-end with a real service account against a real Shared Drive (2026-07-22).** Kestra's `plugin-googleworkspace` wrote to the sanctioned **GradingDrive** Shared Drive (`0AH60sOta4aSZUk9PVA`) using `aie-workspace@aiec1-grading.iam.gserviceaccount.com`; the spike's `kestra-write-proof-*.txt` artifacts live in that drive today. A live capability check confirmed the SA has `canAddChildren`/`canEdit`/`canRename`/`canTrashChildren` and — deliberately — **not** `canDeleteChildren` (trash-only, reversible: an automated writer can't destroy grader packages).
+- **The SA→Drive write is a Shared-Drive fact, not a workaround.** Because GradingDrive is a Shared Drive (`0A…` root), the SA is a member and writes natively — no domain-wide delegation, no My-Drive impersonation. This retires the usual "service accounts can't really write to Drive" objection.
+- **Prefect gives you nothing here.** No native Sheets/Drive — it is owned, maintained `gspread`/`google-api-python-client`, adding friction exactly at the seam where a grading pipeline spends its value. "Reuse the already-shipped Prefect `@flow`" is sunk cost, not a forward-looking reason.
+- **Idempotency is orchestrator-independent** (both duplicate on re-run without stable IDs, as spiked). The grading flow's supersede-on-change logic travels unchanged across either tool — don't credit Prefect for it, don't fear losing it on migration.
+
+**Consumer decision (aie9-cert-challenge grading pipeline):** direction accepted as **Kestra-for-Workspace**, targeting a single orchestrator (Kestra also writes Postgres/Supabase via JDBC — no two-tool split unless forced). The one thing still to validate before retiring the shipped Prefect evidence-writer is Kestra's **internal Supabase supersede-on-change parity** — hypothesized "close enough to iterate," to be proven with simple head-to-head scenarios (first-write / no-op-re-run / supersede-on-change / Sheets-Drive round-trip / gate-fail). Recorded as **ADR-021** in the aie9-cert-challenge repo (`docs/architecture/decisions/ADR-021-orchestrator-direction-kestra-for-workspace.md`, status *Proposed — validation-gated*). Net for the next reader: a **pure-Supabase-ETL** workload can legitimately lean Prefect; a **grading pipeline** lands on Kestra because the Workspace edge is the workload.
+
 ## Durable-execution layer (future / Sub-project C)
 
 | Tool | License | Managed pricing (Jul 2026) | Self-host cost | Ext. Postgres state | Agent-coordination fit | Fit |
