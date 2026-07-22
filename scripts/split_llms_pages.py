@@ -30,6 +30,7 @@ SOURCES_WITH_URL = [
     'Prefect',
     'FastMCP',
     'McpProtocol',
+    'Kestra',  # `# Title` + blank line + `URL:` format (matches the ALT pattern)
 ]
 
 # Sources with header-only pattern (no Source: line)

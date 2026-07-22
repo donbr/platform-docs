@@ -80,6 +80,12 @@ SOURCES = {
         'https://docs.x.ai/llms.txt',
         'https://docs.x.ai/llms.txt',
     ),
+    # Our chosen ETL orchestrator. Uses the `# Title` + blank line + `URL:` page
+    # format (like Anthropic's new format) -> SOURCES_WITH_URL split strategy.
+    'Kestra': (
+        'https://kestra.io/llms.txt',
+        'https://kestra.io/llms-full.txt',
+    ),
 }
 
 # Output directory
