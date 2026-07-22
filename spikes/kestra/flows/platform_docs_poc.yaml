@@ -131,9 +131,9 @@ tasks:
       - cd /repo && uv run python -m spikes.kestra.report --run-id "{{ execution.id }}" --status success --expected {{ inputs.expected_doc_count }} --out report.md
 
   - id: upload_report_drive
-    # NOTE: confirm exact task type + property names against the current plugin via Context7 (`kestra`)
-    # before first run — googleworkspace plugin property names occasionally drift between releases.
-    type: io.kestra.plugin.googleworkspace.drive.Create
+    # Upload (not Create — Create is for folders/metadata). Verified against the
+    # live plugin registry (v1.3.29): required props are `from` + `contentType`.
+    type: io.kestra.plugin.googleworkspace.drive.Upload
     runIf: "{{ inputs.upload_to_drive }}"
     allowFailure: true   # a Drive hiccup must NOT fail an otherwise-successful promotion
     from: "{{ outputs.generate_report.outputFiles['report.md'] }}"

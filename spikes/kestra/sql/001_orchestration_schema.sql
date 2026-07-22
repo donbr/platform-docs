@@ -5,7 +5,7 @@ create schema if not exists kestra_system;
 create schema if not exists orchestration;
 
 create table if not exists orchestration.pipeline_runs (
-  run_id             uuid primary key,
+  run_id             text primary key,   -- Kestra execution.id is a base62 id, NOT a uuid
   flow               text not null,
   source             text,
   stage              text,          -- download | split | upload | verify | alias_swap
