@@ -27,6 +27,11 @@ pluginDefaults:
   - type: io.kestra.plugin.jdbc.postgresql.Query
     values:
       url: "{{ secret('PLATFORM_DOCS_JDBC_URL') }}"
+  # Shell tasks run in the mounted repo with an isolated uv env (not the host .venv)
+  - type: io.kestra.plugin.scripts.shell.Commands
+    values:
+      env:
+        UV_PROJECT_ENVIRONMENT: /tmp/kestra-venv
 
 tasks:
   - id: record_run_start
@@ -46,14 +51,14 @@ tasks:
       interval: PT30S
       maxAttempt: 3
     commands:
-      - uv run scripts/download_llms_raw.py
+      - cd /repo && uv run scripts/download_llms_raw.py
 
   - id: split_docs
     type: io.kestra.plugin.scripts.shell.Commands
     taskRunner:
       type: io.kestra.plugin.core.runner.Process
     commands:
-      - uv run scripts/split_llms_pages.py
+      - cd /repo && uv run scripts/split_llms_pages.py
 
   - id: update_state_uploading
     type: io.kestra.plugin.jdbc.postgresql.Query
@@ -70,7 +75,7 @@ tasks:
       interval: PT1M
       maxAttempt: 3
     commands:
-      - uv run scripts/upload_to_qdrant.py --sources OpenAI Vue Supabase --collection {{ vars.openai_collection }} --batch-size 25 --workers 2
+      - cd /repo && uv run scripts/upload_to_qdrant.py --sources OpenAI Vue Supabase --collection {{ vars.openai_collection }} --batch-size 25 --workers 2
 
   - id: upload_fastembed
     type: io.kestra.plugin.scripts.shell.Commands
@@ -81,7 +86,7 @@ tasks:
       interval: PT1M
       maxAttempt: 3
     commands:
-      - uv run scripts/upload_to_qdrant_fastembed.py --sources OpenAI Vue Supabase --collection {{ vars.fastembed_collection }} --batch-size 25 --workers 2
+      - cd /repo && uv run scripts/upload_to_qdrant_fastembed.py --sources OpenAI Vue Supabase --collection {{ vars.fastembed_collection }} --batch-size 25 --workers 2
 
   - id: update_state_verifying
     type: io.kestra.plugin.jdbc.postgresql.Query
@@ -95,16 +100,16 @@ tasks:
     taskRunner:
       type: io.kestra.plugin.core.runner.Process
     commands:
-      - uv run python -m spikes.kestra.verify_counts --collection {{ vars.openai_collection }} --expected {{ inputs.expected_doc_count }}
-      - uv run python -m spikes.kestra.verify_counts --collection {{ vars.fastembed_collection }} --expected {{ inputs.expected_doc_count }}
+      - cd /repo && uv run python -m spikes.kestra.verify_counts --collection {{ vars.openai_collection }} --expected {{ inputs.expected_doc_count }}
+      - cd /repo && uv run python -m spikes.kestra.verify_counts --collection {{ vars.fastembed_collection }} --expected {{ inputs.expected_doc_count }}
 
   - id: alias_swap
     type: io.kestra.plugin.scripts.shell.Commands
     taskRunner:
       type: io.kestra.plugin.core.runner.Process
     commands:
-      - uv run python -m spikes.kestra.alias_swap --alias {{ vars.openai_alias }} --collection {{ vars.openai_collection }}
-      - uv run python -m spikes.kestra.alias_swap --alias {{ vars.fastembed_alias }} --collection {{ vars.fastembed_collection }}
+      - cd /repo && uv run python -m spikes.kestra.alias_swap --alias {{ vars.openai_alias }} --collection {{ vars.openai_collection }}
+      - cd /repo && uv run python -m spikes.kestra.alias_swap --alias {{ vars.fastembed_alias }} --collection {{ vars.fastembed_collection }}
 
   - id: record_run_success
     type: io.kestra.plugin.jdbc.postgresql.Query
@@ -123,7 +128,7 @@ tasks:
     outputFiles:
       - report.md
     commands:
-      - uv run python -m spikes.kestra.report --run-id "{{ execution.id }}" --status success --expected {{ inputs.expected_doc_count }} --out report.md
+      - cd /repo && uv run python -m spikes.kestra.report --run-id "{{ execution.id }}" --status success --expected {{ inputs.expected_doc_count }} --out report.md
 
   - id: upload_report_drive
     # NOTE: confirm exact task type + property names against the current plugin via Context7 (`kestra`)

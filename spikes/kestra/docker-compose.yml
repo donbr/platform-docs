@@ -39,6 +39,15 @@ services:
             type: postgres
           queue:
             type: postgres
+          storage:
+            type: local
+            local:
+              base-path: /tmp/kestra-storage
+          security:
+            basic-auth:
+              enabled: true
+              username: "${KESTRA_BASIC_AUTH_USERNAME}"
+              password: "${KESTRA_BASIC_AUTH_PASSWORD}"
         datasources:
           postgres:
             url: jdbc:postgresql://postgres:5432/platform_docs?currentSchema=kestra_system
@@ -47,8 +56,9 @@ services:
     env_file:
       - .env
     volumes:
-      - ../../:/app          # mount repo so `uv run scripts/...` works in-container
-    working_dir: /app
+      - ../../:/repo        # mount repo at /repo (NOT /app — that holds the kestra binary)
+    # NOTE: do not set working_dir; the image's /app WORKDIR holds the kestra binary.
+    # Flow shell tasks `cd /repo` themselves (Process runner uses its own temp cwd).
 
 volumes:
   pg_spike:
