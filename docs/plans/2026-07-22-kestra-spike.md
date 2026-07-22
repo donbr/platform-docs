@@ -2,18 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Prove Kestra can run the platform-docs ETL unattended with retries, a promotion gate that blocks bad alias swaps, and Supabase-backed run telemetry — writing the 608 OpenAI/Vue/Supabase docs into isolated POC collections without touching production.
+**Goal:** Prove Kestra can run the platform-docs ETL unattended with retries, a promotion gate that blocks bad alias swaps, and Postgres-backed run telemetry — writing the 608 OpenAI/Vue/Supabase docs into isolated POC collections without touching production.
 
-**Architecture:** A Kestra flow (local Docker) calls the existing `scripts/*.py` as subprocess tasks. Run state is written **natively** via Kestra's Postgres JDBC-Query tasks into a Supabase `orchestration.pipeline_runs` table (no custom state module). Two Python helpers (`verify_counts.py`, `alias_swap.py`) handle Qdrant-side work — count verification and the guarded sandbox alias swap — because JDBC cannot reach Qdrant. Kestra's own metadata lives in an isolated `kestra_system` schema in the same Supabase. Production `*-v2` collections and aliases are never touched.
+**Architecture:** A Kestra flow (local Docker) calls the existing `scripts/*.py` as subprocess tasks. Run state is written **natively** via Kestra's Postgres JDBC-Query tasks into an `orchestration.pipeline_runs` table in a **dedicated local Docker Postgres** (`platform_docs` database) — no custom state module, no cloud dependency. Two Python helpers (`verify_counts.py`, `alias_swap.py`) handle Qdrant-side work — count verification and the guarded sandbox alias swap — because JDBC cannot reach Qdrant. Kestra's own metadata lives in an isolated `kestra_system` schema in the same local database. Production `*-v2` collections and aliases are never touched.
 
-**Tech Stack:** Kestra (Docker) + `io.kestra.plugin.jdbc.postgresql`, Supabase Postgres, `qdrant-client`, existing `uv`-run ETL scripts, pytest.
+> **State store scope:** the spike uses a local Docker Postgres for self-containment (no cloud creds, disposable). The longer-term intent of a cloud state store (Supabase) is preserved for **Sub-project B (production cutover)** — the schema and JDBC-Query design here port to Supabase unchanged by swapping only the connection URL.
+
+**Tech Stack:** Kestra (Docker) + `io.kestra.plugin.jdbc.postgresql`, local Postgres (`pgvector/pgvector:pg16`), `qdrant-client`, existing `uv`-run ETL scripts, pytest.
 
 ## Global Constraints
 
 - Python `>=3.11` (repo `requires-python`); run everything via `uv run`.
 - Qdrant client is `QdrantClient(url=QDRANT_API_URL, api_key=QDRANT_API_KEY)` — reuse this; read both from env.
 - **Never** write to production collections (`platform-docs-v2`, `platform-docs-fastembed-v2`) or production aliases (`platform-docs`, `platform-docs-fastembed`). POC uses collections `platform-docs-poc-v1` / `platform-docs-poc-fastembed-v1` and sandbox aliases `platform-docs-poc-active` / `platform-docs-fastembed-poc-active` only.
-- Supabase schemas are isolated: telemetry in `orchestration`, Kestra internals in `kestra_system`.
+- The local `platform_docs` Postgres database's schemas are isolated: telemetry in `orchestration`, Kestra internals in `kestra_system`.
 - Existing ETL scripts are called as subprocesses; do not rewrite them. **Exact interfaces (verified against the repo):**
   - `scripts/download_llms_raw.py` — no args, downloads ALL sources.
   - `scripts/split_llms_pages.py` — no args, splits ALL sources.
@@ -111,7 +113,7 @@ git commit -m "feat(spike): add POC config module with production-safety constan
 
 ---
 
-### Task 2: Supabase schema (telemetry + Kestra isolation)
+### Task 2: Postgres schema (telemetry + Kestra isolation)
 
 **Files:**
 - Create: `spikes/kestra/sql/001_orchestration_schema.sql`
@@ -187,18 +189,27 @@ create index if not exists idx_pipeline_runs_started
 Run: `uv run pytest spikes/kestra/tests/test_schema_sql.py -v`
 Expected: PASS (3 passed).
 
-- [ ] **Step 5: Apply to Supabase and verify**
+- [ ] **Step 5: Start the local Postgres and apply the schema**
 
-Apply via the Supabase SQL editor, `psql "$PLATFORM_DOCS_DB_URL" -f spikes/kestra/sql/001_orchestration_schema.sql`, or the Supabase MCP `apply_migration`. Then:
+The dedicated `postgres` service is defined in Task 6, but the schema must exist before Kestra starts (Kestra creates its tables inside `kestra_system`). Start just Postgres first, then apply — both schemas are created here.
 
-Run: `psql "$PLATFORM_DOCS_DB_URL" -c "select count(*) from orchestration.pipeline_runs;"`
-Expected: `0` (table exists, empty).
+Run:
+```bash
+docker compose -f spikes/kestra/docker-compose.yml up -d postgres
+sleep 5
+# PLATFORM_DOCS_DB_URL = postgresql://kestra:kestra@localhost:5433/platform_docs  (see Task 6 .env)
+psql "$PLATFORM_DOCS_DB_URL" -f spikes/kestra/sql/001_orchestration_schema.sql
+psql "$PLATFORM_DOCS_DB_URL" -c "select count(*) from orchestration.pipeline_runs;"
+```
+Expected: schema applies cleanly; the count is `0` (table exists, empty).
+
+> Note: this step depends on Task 6's compose file existing. If executing strictly top-to-bottom, create `spikes/kestra/docker-compose.yml` and `.env` (Task 6, Steps 1–2) before running this, then return here. The commit for this task still only includes the SQL + its test.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add spikes/kestra/sql/001_orchestration_schema.sql spikes/kestra/tests/test_schema_sql.py
-git commit -m "feat(spike): add orchestration + kestra_system Supabase schema"
+git commit -m "feat(spike): add orchestration + kestra_system Postgres schema"
 ```
 
 ---
@@ -524,7 +535,7 @@ git commit -m "feat(spike): add reconciled Kestra flow (JDBC state, real command
 
 ---
 
-### Task 6: Docker stack (Kestra → isolated Supabase) + secrets
+### Task 6: Docker stack (dedicated local Postgres + Kestra) + secret
 
 **Files:**
 - Create: `spikes/kestra/docker-compose.yml`
@@ -532,18 +543,39 @@ git commit -m "feat(spike): add reconciled Kestra flow (JDBC state, real command
 - Create: `spikes/kestra/README.md`
 
 **Interfaces:**
-- Consumes: `PLATFORM_DOCS_JDBC_URL` (JDBC, creds embedded), Kestra backend creds, plus `QDRANT_API_URL` / `QDRANT_API_KEY` / `OPENAI_API_KEY` for the shell tasks.
-- Produces: Kestra at `http://localhost:8080`, metadata in `kestra_system`, repo mounted at `/app`, flow loaded.
+- Consumes: `SECRET_PLATFORM_DOCS_JDBC_URL` (base64 JDBC for the flow's state tasks), plus `QDRANT_API_URL` / `QDRANT_API_KEY` / `OPENAI_API_KEY` for the shell tasks. Kestra's own backend creds are hardcoded to the local `postgres` service.
+- Produces: a private Postgres (`platform_docs` db) on host port `5433`, Kestra at `http://localhost:8080` with metadata in `kestra_system`, repo mounted at `/app`, flow loaded.
+
+Design: a dedicated `postgres` service (not the shared `agent-memory-postgres`) — fully isolated, its own named volume, disposable. Kestra and the flow's JDBC tasks reach it over the compose network as `postgres:5432`; host-side `psql` reaches it at `localhost:5433`.
 
 - [ ] **Step 1: Write the compose file**
 
 ```yaml
 # spikes/kestra/docker-compose.yml
 services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: platform_docs
+      POSTGRES_USER: kestra
+      POSTGRES_PASSWORD: kestra
+    ports:
+      - "5433:5432"          # host 5433 (5432 is taken by agent-memory-postgres)
+    volumes:
+      - pg_spike:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kestra -d platform_docs"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   kestra:
     image: kestra/kestra:latest
     command: server standalone
     user: root
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "8080:8080"
     environment:
@@ -555,14 +587,17 @@ services:
             type: postgres
         datasources:
           postgres:
-            url: ${KESTRA_DB_JDBC_URL}   # jdbc:postgresql://<host>:5432/postgres?currentSchema=kestra_system
-            username: ${KESTRA_DB_USER}
-            password: ${KESTRA_DB_PASSWORD}
+            url: jdbc:postgresql://postgres:5432/platform_docs?currentSchema=kestra_system
+            username: kestra
+            password: kestra
     env_file:
       - .env
     volumes:
       - ../../:/app          # mount repo so `uv run scripts/...` works in-container
     working_dir: /app
+
+volumes:
+  pg_spike:
 ```
 
 - [ ] **Step 2: Write `.env.example` and README**
@@ -570,25 +605,23 @@ services:
 ```bash
 # spikes/kestra/.env.example  (copy to .env and fill; NEVER commit real keys)
 
-# --- Kestra's own metadata backend (isolated schema) ---
-KESTRA_DB_JDBC_URL=jdbc:postgresql://db.<project>.supabase.co:5432/postgres?currentSchema=kestra_system
-KESTRA_DB_USER=postgres
-KESTRA_DB_PASSWORD=__set_me__
-
-# --- Secret consumed by the flow's JDBC state tasks (base64 of the JDBC URL, creds embedded) ---
-# Generate: echo -n 'jdbc:postgresql://db.<project>.supabase.co:5432/postgres?user=postgres&password=__pw__&currentSchema=orchestration' | base64 -w0
+# --- Secret consumed by the flow's JDBC state tasks ---
+# Base64 of the LOCAL orchestration-schema JDBC URL (reachable from inside the kestra container):
+# generate: echo -n 'jdbc:postgresql://postgres:5432/platform_docs?user=kestra&password=kestra&currentSchema=orchestration' | base64 -w0
 SECRET_PLATFORM_DOCS_JDBC_URL=__base64_value__
 
+# --- Host-side connection for psql (schema apply + runbook assertions) ---
+PLATFORM_DOCS_DB_URL=postgresql://kestra:kestra@localhost:5433/platform_docs
+
 # --- Plain env for the shell/ETL tasks (uv run scripts) ---
-PLATFORM_DOCS_DB_URL=postgresql://postgres:__set_me__@db.<project>.supabase.co:5432/postgres
 QDRANT_API_URL=__set_me__
 QDRANT_API_KEY=__set_me__
 OPENAI_API_KEY=__set_me__
 ```
 
-`spikes/kestra/README.md` documents, in order: (1) apply Task 2 SQL; (2) `cp .env.example .env` and fill — note `SECRET_PLATFORM_DOCS_JDBC_URL` must be the **base64** of the `orchestration`-schema JDBC URL (that is how Kestra exposes `{{ secret('PLATFORM_DOCS_JDBC_URL') }}`); (3) `docker compose -f spikes/kestra/docker-compose.yml up -d`; (4) ensure `uv` in-container (Step 4); (5) load the flow (Step 5).
+`spikes/kestra/README.md` documents, in order: (1) `cp .env.example .env` and fill — `SECRET_PLATFORM_DOCS_JDBC_URL` is the **base64** of the local `orchestration`-schema JDBC URL (that is how Kestra exposes `{{ secret('PLATFORM_DOCS_JDBC_URL') }}`); the state tasks run inside the kestra container, so the host is `postgres`, not `localhost`; (2) start Postgres + apply schema (Task 2 Step 5); (3) `docker compose -f spikes/kestra/docker-compose.yml up -d`; (4) ensure `uv` in-container (Step 4); (5) load the flow (Step 5). Because Postgres uses a named volume (`pg_spike`), the DB survives `down`; use `down -v` to reset.
 
-- [ ] **Step 3: Bring the stack up and verify Kestra ↔ Supabase isolation**
+- [ ] **Step 3: Bring the full stack up and verify Kestra ↔ local Postgres**
 
 Run:
 ```bash
@@ -597,7 +630,7 @@ sleep 20
 curl -sf http://localhost:8080/api/v1/version && echo " <- kestra up"
 psql "$PLATFORM_DOCS_DB_URL" -c "select count(*) from information_schema.tables where table_schema='kestra_system';"
 ```
-Expected: version JSON prints; `kestra_system` table count `> 0`. **Risk-retirement checkpoint:** if Kestra's connection load on cloud Supabase is unacceptable, switch the `datasources.postgres` block to a local `postgres` service and keep Supabase only for the flow's telemetry secret. Record the decision in the README.
+Expected: version JSON prints; `kestra_system` table count `> 0` (Kestra created its tables in the isolated schema, leaving `orchestration` for telemetry only). If the count is `0`, Kestra failed to migrate — check `docker compose ... logs kestra` for a datasource/schema error.
 
 - [ ] **Step 4: Ensure `uv` in the container**
 
@@ -623,7 +656,7 @@ Expected: `valid`, namespace update reports `platform_docs.poc`, `loaded` prints
 
 ```bash
 git add spikes/kestra/docker-compose.yml spikes/kestra/.env.example spikes/kestra/README.md
-git commit -m "feat(spike): add Kestra docker stack + isolated Supabase backend and secrets"
+git commit -m "feat(spike): add Kestra docker stack + dedicated local Postgres backend"
 ```
 
 ---
@@ -731,7 +764,7 @@ git commit -m "test(spike): add end-to-end happy-path runbook"
 
 ## Notes for the executor
 
-- **Prerequisite (before Task 2):** choose the Supabase project for the state DB. A dedicated `platform-docs` project is cleanest; do NOT reuse the `aie9-grading` project's default schema. Both `orchestration` and `kestra_system` live in whichever project is chosen.
+- **State DB (decided):** a dedicated local Docker Postgres (`postgres` service in Task 6's compose, `platform_docs` db, host port `5433`) — NOT the shared `agent-memory-postgres` container (that belongs to another project; reusing it would couple lifecycles and share its connection budget). Both `orchestration` and `kestra_system` schemas live in this local db. Cloud Supabase is deferred to Sub-project B, where only the connection URL changes.
 - **Reconciliation record:** state is written by native JDBC-Query tasks (adopted from the reviewed draft) rather than a Python `state.py` — fewer moving parts, more Kestra-idiomatic, and it removes the `psycopg` dependency. The tradeoff: the flow needs the postgresql plugin (bundled in `kestra/kestra:latest`) and a base64 Kestra secret for the connection (Task 6). The failure test uses the draft's cleaner `expected_doc_count=999` override instead of a batch-size hack.
 - **Command layer is verified against the repo** — real script names, `--sources` as `nargs="+"` (space-separated, case-sensitive `OpenAI Vue Supabase`), `--collection`, and mandatory `--batch-size 25 --workers 2`. There is no `--model` flag and no `scripts/upload.py`/`verify.py`/`alias_swap.py` in `scripts/` (the last two are created under `spikes/kestra/`).
 - **Kestra version drift** is expected at the YAML property level (see Task 5 checklist); confirm via Context7 (`kestra`) at `flow validate` time, not by assuming the plan is wrong.

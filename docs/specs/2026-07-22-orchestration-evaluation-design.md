@@ -157,10 +157,19 @@ not just the happy path.
 **Deliverables:** `spikes/kestra/` — flow YAML, Supabase schema SQL, and run
 notes.
 
-### State / Data Model (Supabase)
+### State / Data Model (Postgres)
 
-State lives in a dedicated Supabase Postgres schema, `orchestration`, isolated
-from Kestra's own internal metadata (see Risks). Core table:
+> **Amendment (2026-07-22):** the *spike* uses a dedicated **local Docker
+> Postgres** (`pgvector/pgvector:pg16`, `platform_docs` db on host port 5433)
+> rather than cloud Supabase — self-contained, disposable, no cloud creds, and
+> it does not share the existing `agent-memory-postgres` container. The schema
+> and JDBC-Query state design are unchanged and port to Supabase for the
+> production cutover (Sub-project B) by swapping only the connection URL. The
+> "Supabase-as-Kestra-backend" risk below is therefore retired for the spike;
+> it re-enters scope in Sub-project B.
+
+State lives in a dedicated Postgres schema, `orchestration`, isolated
+from Kestra's own internal metadata (`kestra_system`; see Risks). Core table:
 
 ```sql
 create schema if not exists orchestration;
