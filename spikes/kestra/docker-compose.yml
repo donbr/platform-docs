@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: platform_docs
+      POSTGRES_USER: kestra
+      POSTGRES_PASSWORD: kestra
+    ports:
+      - "5433:5432"          # host 5433 (5432 is taken by agent-memory-postgres)
+    volumes:
+      - pg_spike:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kestra -d platform_docs"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kestra:
+    image: kestra/kestra:v1.3-full   # PINNED (research-flagged) — NOT :latest; -full bundles the postgresql JDBC plugin. Confirm exact patch tag on Docker Hub.
+    command: server standalone
+    user: root
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KESTRA_CONFIGURATION: |
+        kestra:
+          repository:
+            type: postgres
+          queue:
+            type: postgres
+        datasources:
+          postgres:
+            url: jdbc:postgresql://postgres:5432/platform_docs?currentSchema=kestra_system
+            username: kestra
+            password: kestra
+    env_file:
+      - .env
+    volumes:
+      - ../../:/app          # mount repo so `uv run scripts/...` works in-container
+    working_dir: /app
+
+volumes:
+  pg_spike:
