@@ -18,6 +18,23 @@ that blocks a bad alias swap, Postgres-backed run telemetry, and optional
 | `alias_swap.py` | Guarded sandbox alias swap (refuses production aliases) |
 | `report.py` | Renders the run-summary markdown uploaded to Drive |
 
+## Security (local dev spike — read before exposing)
+
+This stack is designed to run **only on `localhost`**. Both ports are bound to
+`127.0.0.1` in the compose file. Do not weaken that without adding auth first.
+
+- **Kestra OSS has no authentication**, and its flows execute arbitrary shell in
+  the container. Anyone who can reach port 8080 can run code. Keep it localhost-only;
+  never place this behind a public/LAN ingress without EE/OIDC auth.
+- **The repo is bind-mounted** into the Kestra container so `uv run scripts/...`
+  works. That mount includes any repo-root `.env` (real API keys). Treat the
+  container as trusted, never load untrusted flows, and don't share the host.
+- **Postgres** uses throwaway `kestra/kestra` creds and a local named volume — fine
+  for a disposable localhost spike; not a template for anything shared. `down -v`
+  wipes it.
+- `user: root` is set because the in-container `uv` install needs it; acceptable
+  given the localhost-only, single-user trust model above.
+
 ## Prerequisites
 
 - Docker running.

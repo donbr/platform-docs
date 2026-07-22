@@ -1,3 +1,11 @@
+# SECURITY (local dev spike only — read before exposing anywhere):
+#   - Kestra OSS has NO authentication and its flows run arbitrary shell. Both ports
+#     below are bound to 127.0.0.1 so the stack is reachable ONLY from this host.
+#     Do NOT change these to 0.0.0.0 / a bare "host:container" form, and do NOT put
+#     this stack behind a public ingress without adding auth (EE/OIDC) first.
+#   - The repo is bind-mounted into the Kestra container (needed so `uv run scripts/...`
+#     works). That mount includes any repo-root `.env` — treat the container as trusted
+#     and never load untrusted flows into it.
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -6,7 +14,7 @@ services:
       POSTGRES_USER: kestra
       POSTGRES_PASSWORD: kestra
     ports:
-      - "5433:5432"          # host 5433 (5432 is taken by agent-memory-postgres)
+      - "127.0.0.1:5433:5432"   # localhost-only; 5432 is taken by agent-memory-postgres
     volumes:
       - pg_spike:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +31,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"   # localhost-only — no auth on Kestra OSS; never expose to a network
     environment:
       KESTRA_CONFIGURATION: |
         kestra:
