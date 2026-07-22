@@ -1,0 +1,51 @@
+id: docs_stats_sheet
+namespace: platform_docs
+description: "Upsert a documentation-corpus stats summary (source / url / doc_count / dates / version) into a Google Sheet using Kestra's native Workspace plugin."
+
+inputs:
+  - id: spreadsheet_id
+    type: STRING
+    # The target Google Sheet ID (the long token in its URL). Share the Sheet with
+    # the service-account email as Editor. See docs/guides/kestra-setup-walkthrough.md.
+
+# Weekly refresh of the stats Sheet. DISABLED until a Google service account +
+# spreadsheet_id are configured (see the walkthrough). Remove `disabled: true` to arm.
+triggers:
+  - id: weekly
+    type: io.kestra.plugin.core.trigger.Schedule
+    disabled: true
+    cron: "0 4 * * 1"   # Mondays 04:00
+    inputs:
+      spreadsheet_id: "__set_your_sheet_id__"
+
+pluginDefaults:
+  - type: io.kestra.plugin.scripts.shell.Commands
+    values:
+      env:
+        UV_PROJECT_ENVIRONMENT: /tmp/kestra-venv
+
+tasks:
+  # Write the CSV to the task's own working dir (captured by outputFiles), then cd
+  # into the repo so `uv run` finds the project. Do NOT write the CSV under /repo —
+  # Kestra captures outputFiles from the task workingDir, not the repo mount.
+  - id: gather_stats
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    outputFiles:
+      - docs_stats.csv
+    commands:
+      - OUT="$(pwd)/docs_stats.csv"; cd /repo && uv run python -m spikes.kestra.docs_stats --out "$OUT"
+
+  - id: write_sheet
+    # Load (not CreateSpreadsheet) writes rows INTO an existing sheet. Verified
+    # against the live plugin registry (v1.3.29): required prop is spreadsheetId;
+    # `from` is the CSV, insertType REPLACE overwrites for a current snapshot.
+    type: io.kestra.plugin.googleworkspace.sheets.Load
+    from: "{{ outputs.gather_stats.outputFiles['docs_stats.csv'] }}"
+    spreadsheetId: "{{ inputs.spreadsheet_id }}"
+    range: "Stats"
+    format: CSV
+    header: true
+    insertType: REPLACE
+    serviceAccount: "{{ secret('GOOGLE_SERVICE_ACCOUNT') }}"

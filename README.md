@@ -88,6 +88,8 @@ docker compose down -v          # full teardown, wipes the Postgres + Kestra-sto
 
 Run history, telemetry, and Kestra's internal storage persist across restarts via named volumes; only `down -v` discards them.
 
+**Setup guides** (bring-up, gotchas, and the Google service-account browser flow): [Kestra walkthrough](docs/guides/kestra-setup-walkthrough.md) · [Prefect walkthrough](docs/guides/prefect-setup-walkthrough.md). A scheduled flow (`spikes/kestra/flows/docs_stats_sheet.yaml`) upserts a **documentation-stats Google Sheet** (source / URL / doc_count / dates / collection version).
+
 Why Kestra over Prefect (both spiked end-to-end): native Google Sheets/Drive plugin, auth enforced by default, and a lighter single-container footprint — full analysis in [`docs/research/2026-07-22-orchestration-comparison.md`](docs/research/2026-07-22-orchestration-comparison.md) and the [retrospective](docs/retrospectives/2026-07-22-kestra-spike-retrospective.md).
 
 ## MCP Server Tools
