@@ -78,8 +78,29 @@ the plugins we need (`jdbc.postgresql`, `googleworkspace`); do **not** use
 ## 6. Google Service Account — browser walkthrough (required for Sheets/Drive)
 
 Kestra's Workspace plugin authenticates with a **service-account JSON key** — user
-OAuth / `gcloud` ADC will **not** work. You do **not** need domain-wide delegation;
-access is granted by *sharing* the target Sheet/folder with the SA's email.
+OAuth / `gcloud` ADC (`authorized_user`) tokens will **not** work. You do **not**
+need domain-wide delegation; access is granted by *sharing* the target Sheet/folder
+with the SA's email.
+
+### Fast path — `gcloud` (recommended over the console clicks below)
+
+If you have `gcloud` authenticated, the whole SA setup is four commands (APIs are
+free — no billing needed):
+
+```bash
+PROJECT=cohort9-489302   # any project you own; SA can access anything shared with it
+gcloud services enable sheets.googleapis.com drive.googleapis.com --project "$PROJECT"
+gcloud iam service-accounts create platform-docs-kestra \
+  --project "$PROJECT" --display-name "platform-docs Kestra (Sheets/Drive)"
+gcloud iam service-accounts keys create ~/platform-docs-kestra.json \
+  --iam-account "platform-docs-kestra@$PROJECT.iam.gserviceaccount.com"
+# then base64 the key into the Kestra env (gitignored):
+echo "SECRET_GOOGLE_SERVICE_ACCOUNT=$(base64 -w0 < ~/platform-docs-kestra.json)" >> spikes/kestra/.env
+docker compose -f spikes/kestra/docker-compose.yml up -d   # reload the secret
+```
+
+Then jump to step **D** (share the Sheet/folder with the SA email) and step 15's
+verification. The browser walkthrough below is the equivalent via the console.
 
 **A. Create the project & enable APIs**
 1. Go to **https://console.cloud.google.com** and sign in.
