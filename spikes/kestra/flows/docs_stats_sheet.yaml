@@ -7,6 +7,9 @@ inputs:
     type: STRING
     # The target Google Sheet ID (the long token in its URL). Share the Sheet with
     # the service-account email as Editor. See docs/guides/kestra-setup-walkthrough.md.
+  - id: sheet_range
+    type: STRING
+    defaults: "Sheet1"   # tab/range to write into (must exist in the target Sheet)
 
 # Weekly refresh of the stats Sheet. DISABLED until a Google service account +
 # spreadsheet_id are configured (see the walkthrough). Remove `disabled: true` to arm.
@@ -44,8 +47,8 @@ tasks:
     type: io.kestra.plugin.googleworkspace.sheets.Load
     from: "{{ outputs.gather_stats.outputFiles['docs_stats.csv'] }}"
     spreadsheetId: "{{ inputs.spreadsheet_id }}"
-    range: "Stats"
+    range: "{{ inputs.sheet_range }}"
     format: CSV
     header: true
-    insertType: REPLACE
+    insertType: OVERWRITE   # valid values: UPDATE | OVERWRITE | APPEND (per plugin v1.3.29)
     serviceAccount: "{{ secret('GOOGLE_SERVICE_ACCOUNT') }}"
