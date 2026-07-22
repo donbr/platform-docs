@@ -103,6 +103,7 @@ state, not stale training data. Findings are adversarially sanity-checked, then
 synthesized into the matrix + a two-layer recommendation.
 
 **Agents / skills / tools:**
+
 - `deep-research` skill and/or `general-purpose` agents for the per-candidate
   fan-out
 - `Context7` MCP + `WebSearch` / `WebFetch` for currency (July-2026-scoped
@@ -117,7 +118,7 @@ matrix and a clear recommended architecture.
 
 A Kestra flow modeling the **real DAG**:
 
-```
+```text
 download → split → upload-openai → upload-fastembed → verify-counts → alias-swap
 ```
 
@@ -198,6 +199,7 @@ not need migrating when this graduates from spike to production.
 managed-pricing column and a clear two-layer recommendation.
 
 **Spike:**
+
 1. One unattended end-to-end run completes against the `platform-docs-poc-active`
    sandbox alias.
 2. The verification gate **provably blocks** a bad alias-swap (the deliberate
