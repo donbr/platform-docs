@@ -549,10 +549,10 @@ git commit -m "feat(spike): add reconciled Kestra flow (JDBC state, real command
 Design: a dedicated `postgres` service (not the shared `agent-memory-postgres`) — fully isolated, its own named volume, disposable. Kestra and the flow's JDBC tasks reach it over the compose network as `postgres:5432`; host-side `psql` reaches it at `localhost:5433`.
 
 > **Version pin (research-flagged, July 2026):** do NOT use `kestra/kestra:latest` — pin an explicit tag for reproducibility. Two specifics the research surfaced:
-> - Use the **`-full`** image variant (`kestra/kestra:<version>-full`) so the `io.kestra.plugin.jdbc.postgresql` plugin the flow's state tasks depend on is bundled; the slim base image ships fewer plugins.
+> - Use the **`-full`** image variant (`kestra/kestra:<version>` (standard, plugins bundled)) so the `io.kestra.plugin.jdbc.postgresql` plugin the flow's state tasks depend on is bundled; the slim base image ships fewer plugins.
 > - **Kestra 1.3+ bundles Java 25 inside the image**, so no host JDK is needed for this Docker-based spike. The Java-25 requirement only bites if you ever run the bare Kestra JAR outside Docker (not the case here) — but pin the version so a silent base-image bump can't change the runtime under you.
 >
-> `v1.3-full` is a placeholder for the current stable 1.3-line tag — **confirm the exact patch tag** on Docker Hub (`kestra/kestra` tags) or via Context7 (`kestra`) before the run, and record the resolved tag in the README.
+> Re-check the current 1.3-line patch tag on Docker Hub (`kestra/kestra` tags) before the run and bump the pin if needed; record it in the README.
 
 - [ ] **Step 1: Write the compose file**
 
@@ -576,7 +576,7 @@ services:
       retries: 10
 
   kestra:
-    image: kestra/kestra:v1.3-full   # PINNED (research-flagged) — NOT :latest. See "Version pin" note below.
+    image: kestra/kestra:v1.3.29   # PINNED (research-flagged) — NOT :latest. See "Version pin" note below.
     command: server standalone
     user: root
     depends_on:
@@ -780,9 +780,28 @@ git commit -m "test(spike): add end-to-end happy-path runbook"
 
 ---
 
+### Task 9: Google Drive run-report (added — optional, best-effort)
+
+**Files:**
+- Create: `spikes/kestra/report.py` (+ `tests/test_report.py`)
+- Modify: `spikes/kestra/flows/platform_docs_poc.yaml` — add `generate_report` + `upload_report_drive` tasks and inputs `upload_to_drive` (BOOLEAN, default false).
+
+**Interfaces:**
+- `render_report(run_id, status, expected, counts, aliases) -> str` (pure, unit-tested); CLI `python -m spikes.kestra.report --run-id ... --status ... --expected N --out report.md` gathers live Qdrant counts + POC alias targets and writes the markdown.
+
+**Design:** Qdrant-driven and DB-free (no psycopg re-added). The flow generates the report as an `outputFiles` artifact, then `io.kestra.plugin.googleworkspace.drive.Create` uploads it to the test folder `1WSgQQCMT9tgnM-108HtyXfIUZtgliBwR`. Both tasks are gated by `runIf: {{ inputs.upload_to_drive }}` and the upload is `allowFailure: true`, so the base pipeline runs and succeeds without any Google credentials; Drive reporting only engages when explicitly enabled.
+
+**Prerequisite (user, one-time):** Kestra's Workspace plugin needs a Google **service account** (not user ADC). Create a GCP service account, enable the Drive API, download its JSON key, **share the target Drive folder with the SA email as Editor**, then set `SECRET_GOOGLE_SERVICE_ACCOUNT=<base64 of the JSON>` in `.env`. See `spikes/kestra/README.md` → "Google Drive reporting".
+
+- [ ] **Step 1:** unit-test + implement `render_report` (see `report.py`); `uv run pytest spikes/kestra/tests/test_report.py -v` → PASS.
+- [ ] **Step 2:** confirm the `googleworkspace.drive.Create` property names against the current plugin via Context7 (`kestra`) before first Drive run — this is the one task most exposed to plugin drift.
+- [ ] **Step 3:** run happy-path Step 5 (`--inputs '{"upload_to_drive": true}'`) and confirm the report file lands in the Drive folder.
+
+---
+
 ## Notes for the executor
 
 - **State DB (decided):** a dedicated local Docker Postgres (`postgres` service in Task 6's compose, `platform_docs` db, host port `5433`) — NOT the shared `agent-memory-postgres` container (that belongs to another project; reusing it would couple lifecycles and share its connection budget). Both `orchestration` and `kestra_system` schemas live in this local db. Cloud Supabase is deferred to Sub-project B, where only the connection URL changes.
-- **Reconciliation record:** state is written by native JDBC-Query tasks (adopted from the reviewed draft) rather than a Python `state.py` — fewer moving parts, more Kestra-idiomatic, and it removes the `psycopg` dependency. The tradeoff: the flow needs the postgresql plugin (bundled in the pinned `kestra/kestra:<version>-full` image — Task 6) and a base64 Kestra secret for the connection (Task 6). The failure test uses the draft's cleaner `expected_doc_count=999` override instead of a batch-size hack.
+- **Reconciliation record:** state is written by native JDBC-Query tasks (adopted from the reviewed draft) rather than a Python `state.py` — fewer moving parts, more Kestra-idiomatic, and it removes the `psycopg` dependency. The tradeoff: the flow needs the postgresql plugin (bundled in the pinned `kestra/kestra:<version>` (standard, plugins bundled) image — Task 6) and a base64 Kestra secret for the connection (Task 6). The failure test uses the draft's cleaner `expected_doc_count=999` override instead of a batch-size hack.
 - **Command layer is verified against the repo** — real script names, `--sources` as `nargs="+"` (space-separated, case-sensitive `OpenAI Vue Supabase`), `--collection`, and mandatory `--batch-size 25 --workers 2`. There is no `--model` flag and no `scripts/upload.py`/`verify.py`/`alias_swap.py` in `scripts/` (the last two are created under `spikes/kestra/`).
 - **Kestra version drift** is expected at the YAML property level (see Task 5 checklist); confirm via Context7 (`kestra`) at `flow validate` time, not by assuming the plan is wrong.

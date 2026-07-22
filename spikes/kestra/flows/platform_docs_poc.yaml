@@ -1,0 +1,163 @@
+id: poc
+namespace: platform_docs
+description: "Spike ETL for platform-docs into POC sandbox collections/aliases; validates the promotion gate and (optionally) reports to Google Drive."
+
+inputs:
+  - id: expected_doc_count
+    type: INT
+    defaults: 0   # 0 = compute dynamically from split output; a positive value overrides (set 999 to force the gate to fail).
+  - id: upload_to_drive
+    type: BOOLEAN
+    defaults: false  # set true once a Google service account is configured (see README)
+
+variables:
+  openai_collection: "platform-docs-poc-v1"
+  fastembed_collection: "platform-docs-poc-fastembed-v1"
+  openai_alias: "platform-docs-poc-active"
+  fastembed_alias: "platform-docs-fastembed-poc-active"
+  drive_folder_id: "1WSgQQCMT9tgnM-108HtyXfIUZtgliBwR"  # test workspace folder
+
+# Serialize whole-flow executions (NOT a TPM control — batch-size/workers do that)
+concurrency:
+  behavior: QUEUE
+  limit: 1
+
+# Postgres connection for all JDBC state tasks (secret configured in Task 6 / .env)
+pluginDefaults:
+  - type: io.kestra.plugin.jdbc.postgresql.Query
+    values:
+      url: "{{ secret('PLATFORM_DOCS_JDBC_URL') }}"
+  # Shell tasks run in the mounted repo with an isolated uv env (not the host .venv)
+  - type: io.kestra.plugin.scripts.shell.Commands
+    values:
+      env:
+        UV_PROJECT_ENVIRONMENT: /tmp/kestra-venv
+
+tasks:
+  - id: record_run_start
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    sql: |
+      INSERT INTO orchestration.pipeline_runs
+        (run_id, flow, stage, status, environment, collection_version)
+      VALUES
+        ('{{ execution.id }}', '{{ flow.id }}', 'download', 'running', 'poc', 'v1');
+
+  - id: download_sources
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    retry:
+      type: constant
+      interval: PT30S
+      maxAttempt: 3
+    commands:
+      - cd /repo && uv run scripts/download_llms_raw.py
+
+  - id: split_docs
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - cd /repo && uv run scripts/split_llms_pages.py
+
+  # Compute the real expected doc count from the split output (emits a Kestra
+  # output var 'count' consumed by the gate override + telemetry below).
+  - id: compute_expected
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - cd /repo && uv run python -m spikes.kestra.emit_expected
+
+  - id: update_state_uploading
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    sql: |
+      UPDATE orchestration.pipeline_runs
+      SET stage = 'upload', docs_expected = {{ outputs.compute_expected.vars.count }}
+      WHERE run_id = '{{ execution.id }}';
+
+  - id: upload_openai
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    retry:
+      type: constant
+      interval: PT1M
+      maxAttempt: 3
+    commands:
+      - cd /repo && uv run scripts/upload_to_qdrant.py --sources OpenAI Vue Supabase --collection {{ vars.openai_collection }} --batch-size 25 --workers 2
+
+  - id: upload_fastembed
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    retry:
+      type: constant
+      interval: PT1M
+      maxAttempt: 3
+    commands:
+      - cd /repo && uv run scripts/upload_to_qdrant_fastembed.py --sources OpenAI Vue Supabase --collection {{ vars.fastembed_collection }} --batch-size 25 --workers 2
+
+  - id: update_state_verifying
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    sql: |
+      UPDATE orchestration.pipeline_runs SET stage = 'verify'
+      WHERE run_id = '{{ execution.id }}';
+
+  # THE GATE: either verify exits non-zero -> flow fails -> alias swaps skipped -> errors handler runs.
+  - id: verify_counts
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - cd /repo && uv run python -m spikes.kestra.verify_counts --collection {{ vars.openai_collection }} --expected {{ inputs.expected_doc_count }}
+      - cd /repo && uv run python -m spikes.kestra.verify_counts --collection {{ vars.fastembed_collection }} --expected {{ inputs.expected_doc_count }}
+
+  - id: alias_swap
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - cd /repo && uv run python -m spikes.kestra.alias_swap --alias {{ vars.openai_alias }} --collection {{ vars.openai_collection }}
+      - cd /repo && uv run python -m spikes.kestra.alias_swap --alias {{ vars.fastembed_alias }} --collection {{ vars.fastembed_collection }}
+
+  - id: record_run_success
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    sql: |
+      UPDATE orchestration.pipeline_runs
+      SET status = 'success', stage = 'alias_swap', finished_at = NOW(),
+          alias_swapped_at = NOW(), docs_uploaded = {{ outputs.compute_expected.vars.count }}
+      WHERE run_id = '{{ execution.id }}';
+
+  # --- Best-effort Google Drive reporting (runs only when upload_to_drive=true; never fails the run) ---
+  - id: generate_report
+    type: io.kestra.plugin.scripts.shell.Commands
+    runIf: "{{ inputs.upload_to_drive }}"
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    outputFiles:
+      - report.md
+    commands:
+      - cd /repo && uv run python -m spikes.kestra.report --run-id "{{ execution.id }}" --status success --expected {{ inputs.expected_doc_count }} --out report.md
+
+  - id: upload_report_drive
+    # Upload (not Create — Create is for folders/metadata). Verified against the
+    # live plugin registry (v1.3.29): required props are `from` + `contentType`.
+    type: io.kestra.plugin.googleworkspace.drive.Upload
+    runIf: "{{ inputs.upload_to_drive }}"
+    allowFailure: true   # a Drive hiccup must NOT fail an otherwise-successful promotion
+    from: "{{ outputs.generate_report.outputFiles['report.md'] }}"
+    name: "platform-docs-poc-report-{{ execution.id }}.md"
+    parents:
+      - "{{ vars.drive_folder_id }}"
+    contentType: "text/markdown"
+    serviceAccount: "{{ secret('GOOGLE_SERVICE_ACCOUNT') }}"
+
+errors:
+  - id: record_run_failure
+    type: io.kestra.plugin.jdbc.postgresql.Query
+    sql: |
+      UPDATE orchestration.pipeline_runs
+      SET status = 'failed', finished_at = NOW(),
+          error = 'flow failed before promotion'
+      WHERE run_id = '{{ execution.id }}';

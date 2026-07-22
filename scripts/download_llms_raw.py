@@ -233,7 +233,13 @@ async def main():
     print(f'    Duration: {manifest["duration_seconds"]:.1f}s')
     print(f'    Manifest: {manifest_path}')
 
-    return 0 if (failed_llms == 0 and failed_llms_full == 0) else 1
+    # The pipeline only consumes llms-full.txt; a missing/404 llms.txt (e.g.
+    # Supabase does not publish one) is a benign warning, not a failure. Exit
+    # non-zero only when a consumed llms-full.txt failed, so orchestrators do
+    # not hard-fail the whole run on an unused-file miss.
+    if failed_llms:
+        print(f'    WARNING: {failed_llms} llms.txt file(s) failed (not consumed downstream; ignored for exit code)')
+    return 0 if failed_llms_full == 0 else 1
 
 
 if __name__ == '__main__':
