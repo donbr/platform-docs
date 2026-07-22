@@ -34,6 +34,21 @@ Ranked by Fit (desc). Cells marked ⚠ are where a claim was refuted or the veri
 | **Google Cloud Workflows** | Proprietary, managed-only (**fails OSS-first**) | ~$0 at this scale (free 5k internal + 2k external steps/mo; $0.01/1k internal, $0.025/1k external) + Scheduler $0.10/job | N/A — not self-hostable | Declarative retries strong; no token-aware limiter (manual pacing) | **No** — managed state only (**fails requirement**) | Callback pause/resume — strong | Good GCP-native (limited console retention) | **Poor** — YAML DSL; wrap each stage as Cloud Run service | **2** |
 | **AWS Step Functions** | Proprietary, managed-only | Standard $25/M transitions (4k/mo free forever); Express $1/M + GB-s; tiny at this scale | N/A (Local JAR = testing only) | **Best-in-class** declarative retries; Map `maxConcurrency` (no token bucket) | **No** — managed state (**fails requirement**) | `waitForTaskToken` approvals — strong | Strong console + 90-day history | **Awkward** — Lambda/Fargate, 256 KB payload cap | **2** |
 
+## Google Drive / Sheets support — Kestra vs Prefect (added 2026-07-22)
+
+Not a matrix column above, but decision-relevant given adjacent workflows that export reports to Google Drive/Sheets. **Kestra wins clearly on native + simpler support.**
+
+| | Kestra | Prefect 3 |
+|---|---|---|
+| **Google Drive** | ✅ First-party `plugin-googleworkspace` — native tasks: upload, download, export, list, create, **watch** (file trigger). Bundled in the `-full` image. | ❌ None. `prefect-gcp` covers BigQuery/GCS/Cloud Run/Vertex/Secret Manager, **not** Drive. Roll your own with `google-api-python-client` in a `@task`. |
+| **Google Sheets** | ✅ First-party — native **read** (ranges, value/datetime rendering) and **write**; Sheets triggers; a dedicated "Connect Google Sheets" how-to. | ⚠ No first-party. Community `prefect-google-sheets` is **Prefect-2.0-era** (Sheets-only, unmaintained for v3), or use `gspread` in a `@task`. |
+| **Auth** | Service-account JSON via plugin defaults (set once). | Standard Google client auth, hand-wired in code. |
+| **Effort** | Declarative YAML, no-code. | DIY Python (easy given the pipeline is already Python, but you own the client code). |
+
+**Impact on the Prefect-vs-Kestra call:** the matrix put Prefect ahead on the *ETL core* (token-aware rate limits, async-native). But Kestra's turnkey Workspace plugin is a **real, concrete offset** if Drive/Sheets I/O is part of the workload. Net: weigh Prefect's better OpenAI-TPM handling for the embedding uploads against Kestra's batteries-included Workspace I/O — whichever you'll actually lean on more.
+
+Sources: [kestra-io/plugin-googleworkspace](https://github.com/kestra-io/plugin-googleworkspace), [Kestra — Connect Google Sheets](https://kestra.io/docs/how-to-guides/google-sheets), [Kestra — Google Drive plugin](https://kestra.io/plugins/plugin-googleworkspace/drive), [prefect-gcp docs (no Sheets/Drive)](https://docs.prefect.io/integrations/prefect-gcp), [prefect-google-sheets (community, 2.0-era)](https://stefanocascavilla.github.io/prefect-google-sheets/).
+
 ## Durable-execution layer (future / Sub-project C)
 
 | Tool | License | Managed pricing (Jul 2026) | Self-host cost | Ext. Postgres state | Agent-coordination fit | Fit |
