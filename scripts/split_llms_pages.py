@@ -37,6 +37,9 @@ SOURCES_HEADER_ONLY = [
     'PydanticAI',
     'Zep',
     'GoogleADK',
+    'OpenAI',
+    'Vue',
+    'Supabase',
 ]
 
 # Sources with multi-level header pattern (split on # and ##)
