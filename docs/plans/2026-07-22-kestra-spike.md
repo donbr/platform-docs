@@ -780,6 +780,25 @@ git commit -m "test(spike): add end-to-end happy-path runbook"
 
 ---
 
+### Task 9: Google Drive run-report (added — optional, best-effort)
+
+**Files:**
+- Create: `spikes/kestra/report.py` (+ `tests/test_report.py`)
+- Modify: `spikes/kestra/flows/platform_docs_poc.yaml` — add `generate_report` + `upload_report_drive` tasks and inputs `upload_to_drive` (BOOLEAN, default false).
+
+**Interfaces:**
+- `render_report(run_id, status, expected, counts, aliases) -> str` (pure, unit-tested); CLI `python -m spikes.kestra.report --run-id ... --status ... --expected N --out report.md` gathers live Qdrant counts + POC alias targets and writes the markdown.
+
+**Design:** Qdrant-driven and DB-free (no psycopg re-added). The flow generates the report as an `outputFiles` artifact, then `io.kestra.plugin.googleworkspace.drive.Create` uploads it to the test folder `1WSgQQCMT9tgnM-108HtyXfIUZtgliBwR`. Both tasks are gated by `runIf: {{ inputs.upload_to_drive }}` and the upload is `allowFailure: true`, so the base pipeline runs and succeeds without any Google credentials; Drive reporting only engages when explicitly enabled.
+
+**Prerequisite (user, one-time):** Kestra's Workspace plugin needs a Google **service account** (not user ADC). Create a GCP service account, enable the Drive API, download its JSON key, **share the target Drive folder with the SA email as Editor**, then set `SECRET_GOOGLE_SERVICE_ACCOUNT=<base64 of the JSON>` in `.env`. See `spikes/kestra/README.md` → "Google Drive reporting".
+
+- [ ] **Step 1:** unit-test + implement `render_report` (see `report.py`); `uv run pytest spikes/kestra/tests/test_report.py -v` → PASS.
+- [ ] **Step 2:** confirm the `googleworkspace.drive.Create` property names against the current plugin via Context7 (`kestra`) before first Drive run — this is the one task most exposed to plugin drift.
+- [ ] **Step 3:** run happy-path Step 5 (`--inputs '{"upload_to_drive": true}'`) and confirm the report file lands in the Drive folder.
+
+---
+
 ## Notes for the executor
 
 - **State DB (decided):** a dedicated local Docker Postgres (`postgres` service in Task 6's compose, `platform_docs` db, host port `5433`) — NOT the shared `agent-memory-postgres` container (that belongs to another project; reusing it would couple lifecycles and share its connection budget). Both `orchestration` and `kestra_system` schemas live in this local db. Cloud Supabase is deferred to Sub-project B, where only the connection URL changes.
