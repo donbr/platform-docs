@@ -50,6 +50,17 @@ Takeaway: Kestra 1.x has sharp edges and real version drift. Budget ~a day for a
 
 The spike surfaced a real bug in shared code: `download_llms_raw.py` exited non-zero on an unused-file 404. Fixed to exit on `llms-full.txt` failures only. This would have degraded any future automation, orchestrated or not.
 
+## Postscript — Prefect comparison spike
+
+To make the Prefect-vs-Kestra call symmetric, the same pipeline was later built and run in Prefect 3 (`spikes/prefect/`, 4 live runs; head-to-head in the [comparison doc](../research/2026-07-22-orchestration-comparison.md)). Findings that refine the decision:
+
+- **Prefect's ergonomics + observability are genuinely better.** Lighter setup, `@flow`/`@task` with the gate as a plain `raise`, in-process helper reuse, and — the standout — **run history for free** (auto-recorded in Postgres; no `pipeline_runs` table or JDBC tasks).
+- **Prefect's headline TPM edge did not materialize from wrapping the scripts** — subprocessing the existing upload never routes embedding through `slot_decay`; realizing it needs an in-process upload rewrite. So its paper advantage is smaller in practice.
+- **Two points favor Kestra the paper missed:** Prefect OSS ships **no auth**; Kestra's **native Sheets/Drive** is unmatched.
+- **Idempotency** is unsolved in both (same script) — confirming it's orchestrator-independent.
+
+Net: the gap is narrower than the paper implied. Kestra still wins **for this shop** on the strength of native Sheets/Drive (a confirmed requirement) + default auth; absent the Workspace need, the call would flip to Prefect.
+
 ## One-line summary
 
 The orchestrator is trustworthy; the pipeline's correctness (rate limiting, idempotency) remains the code's job — plan for both, and Kestra is the right tool for this shop given the Workspace integration.
