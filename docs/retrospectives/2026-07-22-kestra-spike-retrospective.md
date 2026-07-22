@@ -57,9 +57,9 @@ Low-risk hardening already committed to `spikes/kestra/`:
 7. Add JVM **resource limits** (`mem_limit`) and a flow-level **timeout/SLA**.
 8. **Build the documentation-stats Google Sheet** (see below) — the highest-value use of Kestra's native Workspace plugin.
 
-## Recommended feature: a documentation-stats Google Sheet
+## Feature built: a documentation-stats Google Sheet
 
-There is currently **no** corpus-summary Sheet — the only Drive output is a per-run POC-count markdown file. A scheduled Kestra flow using the native `plugin-googleworkspace` `sheets.*` tasks should **read the manifests + live collections and upsert a Sheet** with one row per source: `source`, `source_url`, `doc_count`, `last_download_date`, `collection_version`, `last_refreshed`. This is exactly the integration Kestra was chosen for, gives non-technical stakeholders live freshness visibility, and needs only the Google service account already required for Drive reporting.
+**Implemented** (2026-07-22, pending only a Google service account). `spikes/kestra/docs_stats.py` reads the ETL manifest + live production collection and emits a CSV (`source, source_url, doc_count, last_downloaded, collection_version, generated_at`); `spikes/kestra/flows/docs_stats_sheet.yaml` upserts it into a Google Sheet via the native `sheets.Load` task (weekly `Schedule` trigger, disabled until the SA + Sheet ID are set). This is the integration Kestra was chosen for. Setup: `docs/guides/kestra-setup-walkthrough.md` §6–7. First live run already surfaced a real gap — Cursor/OpenAI/Vue/Supabase show **0 docs in production** (uploaded only to POC collections by the spikes, never promoted to prod).
 
 ## Bugs found for the wider repo (value beyond the spike)
 

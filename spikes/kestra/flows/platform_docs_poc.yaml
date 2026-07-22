@@ -146,7 +146,8 @@ tasks:
     outputFiles:
       - report.md
     commands:
-      - cd /repo && uv run python -m spikes.kestra.report --run-id "{{ execution.id }}" --status success --expected {{ inputs.expected_doc_count }} --out report.md
+      # write to the task workingDir (captured by outputFiles), not under /repo
+      - OUT="$(pwd)/report.md"; cd /repo && uv run python -m spikes.kestra.report --run-id "{{ execution.id }}" --status success --expected {{ inputs.expected_doc_count }} --out "$OUT"
 
   - id: upload_report_drive
     # Upload (not Create — Create is for folders/metadata). Verified against the
