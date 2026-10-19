@@ -4,14 +4,20 @@ description: >-
   PRODUCTION blue-green refresh, collection-agnostic. Builds a fresh versioned
   collection from the current corpus, verifies the full count, then (only with
   confirm=true) re-points the given production alias; the old collection is left
-  as an instant rollback. Works for either embedder via inputs: OpenAI
-  (prod_alias=platform-docs, upload_script=upload_to_qdrant.py) or FastEmbed
+  as an instant rollback. target_collection must be a NEW version (required, no
+  default) — never the collection a live alias points to. Works for either
+  embedder via inputs: OpenAI (prod_alias=platform-docs, upload_script=upload_to_qdrant.py) or FastEmbed
   (prod_alias=platform-docs-fastembed, upload_script=upload_to_qdrant_fastembed.py).
+
+# Concurrent refreshes share the data dir and the OpenAI TPM limit.
+concurrency:
+  limit: 1
+  behavior: FAIL
 
 inputs:
   - id: target_collection
     type: STRING
-    defaults: platform-docs-v3          # e.g. platform-docs-v4 (OpenAI) or platform-docs-fastembed-v3
+    required: true  # REQUIRED: a NEW version, e.g. platform-docs-v5 — never the collection a live alias points to
   - id: prod_alias
     type: STRING
     defaults: platform-docs             # platform-docs (OpenAI) | platform-docs-fastembed (free)
@@ -57,7 +63,8 @@ tasks:
       type: io.kestra.plugin.core.runner.Process
     commands:
       # Delete the (non-live) target so the non-idempotent upload starts clean.
-      - cd /repo && uv run python -c "import os; from qdrant_client import QdrantClient; c=QdrantClient(url=os.environ['QDRANT_API_URL'], api_key=os.environ['QDRANT_API_KEY']); c.delete_collection('{{ inputs.target_collection }}') if c.collection_exists('{{ inputs.target_collection }}') else None; print('reset {{ inputs.target_collection }}')"
+      # Refuses (non-zero exit) if any live alias points at the target.
+      - cd /repo && uv run python -m spikes.kestra.reset_target --collection {{ inputs.target_collection }}
 
   - id: download_sources
     type: io.kestra.plugin.scripts.shell.Commands
