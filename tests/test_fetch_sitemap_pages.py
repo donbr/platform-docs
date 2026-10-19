@@ -14,17 +14,18 @@ SITEMAP_FIXTURE = """<?xml version="1.0" encoding="UTF-8"?>
   <url><loc>https://help.getzep.com/sdk-reference/graph/add-data</loc></url>
   <url><loc>https://help.getzep.com/v2/welcome</loc></url>
   <url><loc>https://help.getzep.com/v2/sdk-reference/deprecated/memory/synthesize-question</loc></url>
+  <url><loc>https://help.getzep.com/v3/sdk-reference/batch/get-batch</loc></url>
   <url><loc>https://help.getzep.com/changelog/2026/8/3</loc></url>
 </urlset>
 """
 
 
 def test_parse_sitemap_extracts_all_locs():
-    assert len(parse_sitemap(SITEMAP_FIXTURE)) == 6
+    assert len(parse_sitemap(SITEMAP_FIXTURE)) == 7
 
 
 def test_select_urls_excludes_prior_version_and_changelog():
-    selected = select_urls(parse_sitemap(SITEMAP_FIXTURE), {"v2", "changelog"})
+    selected = select_urls(parse_sitemap(SITEMAP_FIXTURE), SITEMAP_SOURCES["Zep"]["exclude_segments"])
     assert selected == [
         "https://help.getzep.com/graphiti/core-concepts/adding-episodes",
         "https://help.getzep.com/overview",

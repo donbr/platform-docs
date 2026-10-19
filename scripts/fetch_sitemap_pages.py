@@ -53,10 +53,11 @@ SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
 SITEMAP_SOURCES = {
     "Zep": {
         "sitemap": "https://help.getzep.com/sitemap.xml",
-        # `v2` is the prior docs version — a parallel copy of the whole tree including
-        # 29 explicitly deprecated pages. Indexing it would double-index Zep and let
-        # stale endpoints surface beside current ones.
-        "exclude_segments": {"v2", "changelog"},
+        # v4 is the current default, served at the root path. `v2` and `v3` are prior-
+        # version parallel trees of the same docs (v3 pages are bannered "This page is
+        # for version v3" and use older endpoint names). Indexing them would double-index
+        # Zep and let stale endpoints surface beside current ones.
+        "exclude_segments": {"v2", "v3", "changelog"},
         "min_pages": 150,
     },
 }
