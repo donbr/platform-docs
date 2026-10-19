@@ -60,10 +60,8 @@ SOURCES = {
         'https://supabase.com/docs/llms.txt',
         'https://supabase.com/llms-full.txt',
     ),
-    'Zep': (
-        'https://help.getzep.com/llms.txt',
-        'https://help.getzep.com/llms-full.txt',
-    ),
+    # Zep is fetched by scripts/fetch_sitemap_pages.py instead: upstream retired
+    # llms-full.txt (it now returns the same 2 KB landing page as llms.txt).
     'Temporal': (
         'https://docs.temporal.io/llms.txt',
         'https://docs.temporal.io/llms-full.txt',

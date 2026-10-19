@@ -28,3 +28,8 @@ def test_to_csv_roundtrip(tmp_path):
     assert parsed[0]["source"] == "Temporal"
     assert parsed[0]["doc_count"] == "2258"
     assert list(parsed[0].keys()) == docs_stats.FIELDS
+
+
+def test_source_base_urls_includes_sitemap_sources():
+    urls = docs_stats.source_base_urls()
+    assert urls["Zep"] == "https://help.getzep.com"

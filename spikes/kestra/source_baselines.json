@@ -1,0 +1,19 @@
+{
+  "_comment": "Per-source page floors for the promotion gate. Set to ~80% of observed counts so normal upstream churn passes but a collapse fails. Update deliberately when a source legitimately shrinks.",
+  "floors": {
+    "Anthropic": 1280,
+    "FastMCP": 140,
+    "GoogleADK": 190,
+    "Grok": 115,
+    "Kestra": 385,
+    "LangChain": 780,
+    "McpProtocol": 100,
+    "OpenAI": 110,
+    "Prefect": 570,
+    "PydanticAI": 165,
+    "Supabase": 315,
+    "Temporal": 2290,
+    "Vue": 70,
+    "Zep": 265
+  }
+}

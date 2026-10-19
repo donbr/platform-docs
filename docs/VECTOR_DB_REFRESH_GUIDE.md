@@ -402,6 +402,9 @@ uv run python scripts/download_llms_raw.py
 # 3. Re-split into pages
 uv run python scripts/split_llms_pages.py
 
+# 3b. Fetch sitemap-based sources (Zep)
+uv run python scripts/fetch_sitemap_pages.py
+
 # 4. Upload (will auto-create collection)
 uv run python scripts/upload_to_qdrant.py
 
