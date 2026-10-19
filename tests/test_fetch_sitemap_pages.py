@@ -56,11 +56,16 @@ length so that it is not dropped as a stub by the length filter.
 
 NOT_FOUND_MD = """# Page Not Found
 
-This page does not exist.
+This page does not exist. The page you requested may have been moved, renamed,
+or removed. Check the links below for the closest current documentation.
 
 ## Similar pages
 
 - [Overview](https://help.getzep.com/overview.md)
+- [Adding Episodes](https://help.getzep.com/graphiti/core-concepts/adding-episodes.md)
+- [Graph Add Data](https://help.getzep.com/sdk-reference/graph/add-data.md)
+- [Searching the Graph](https://help.getzep.com/graphiti/core-concepts/searching.md)
+- [Custom Entity Types](https://help.getzep.com/graphiti/core-concepts/custom-entity-types.md)
 """
 
 
