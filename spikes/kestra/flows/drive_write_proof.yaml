@@ -17,6 +17,10 @@ pluginDefaults:
     values:
       taskRunner:
         type: io.kestra.plugin.core.runner.Process
+      # Keep uv's venv out of the bind-mounted /repo: without this, `uv run` creates
+      # /repo/.venv as root inside the container, breaking the host checkout's venv.
+      env:
+        UV_PROJECT_ENVIRONMENT: /tmp/kestra-venv
 
 tasks:
   - id: make_file
