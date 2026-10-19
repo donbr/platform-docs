@@ -79,6 +79,22 @@ tasks:
     commands:
       - cd /repo && uv run scripts/split_llms_pages.py
 
+  # Sources whose upstream retired llms-full.txt are fetched per-page from their
+  # sitemap instead. Runs after split_docs: the splitter rmtree's the page dir of
+  # every source it handles, and these sources are deliberately absent from its
+  # strategy lists, but ordering here keeps that independence obvious.
+  - id: fetch_sitemap_sources
+    type: io.kestra.plugin.scripts.shell.Commands
+    runIf: "{{ inputs.rebuild }}"
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    retry:
+      type: constant
+      interval: PT30S
+      maxAttempt: 3
+    commands:
+      - cd /repo && uv run scripts/fetch_sitemap_pages.py
+
   - id: upload_bulk
     type: io.kestra.plugin.scripts.shell.Commands
     runIf: "{{ inputs.rebuild }}"
