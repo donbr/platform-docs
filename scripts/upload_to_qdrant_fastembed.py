@@ -12,6 +12,8 @@ No OpenAI API key required!
 import argparse
 import json
 import os
+import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -37,6 +39,15 @@ MAX_WORKERS = 4
 DATA_DIR = Path(__file__).parent.parent / "data"
 PAGES_DIR = DATA_DIR / "interim" / "pages"
 PROCESSED_DIR = DATA_DIR / "processed"
+# Fixed namespace for deterministic point IDs. MUST match the same constant in the
+# other uploader (upload_to_qdrant.py / upload_to_qdrant_fastembed.py).
+POINT_ID_NAMESPACE = uuid.UUID("6f1d3c2e-8a47-4b59-9c0e-5d2a7b91e4f3")
+MAX_ATTEMPTS = 3
+
+
+def point_id(doc_id: str) -> str:
+    """Deterministic Qdrant point ID for a doc_id (same doc_id -> same UUID)."""
+    return str(uuid.uuid5(POINT_ID_NAMESPACE, doc_id))
 
 
 def init_qdrant_client() -> QdrantClient:
@@ -53,6 +64,9 @@ def init_qdrant_client() -> QdrantClient:
         url=api_url,
         api_key=api_key,
         prefer_grpc=True,
+        # Large-doc batches exceed the client's short default gRPC deadline
+        # (DEADLINE_EXCEEDED on full refreshes), so allow a generous timeout.
+        timeout=120,
     )
 
 
@@ -166,13 +180,22 @@ def upload_batch(
     vector_store: QdrantVectorStore,
     batch_idx: int,
 ) -> List[str]:
-    """Upload a single batch of documents."""
-    try:
-        ids = vector_store.add_documents(documents=batch)
-        return ids
-    except Exception as e:
-        print(f"\n✗ Batch {batch_idx} failed: {e}")
-        raise
+    """Upload a single batch of documents, retrying up to 3 attempts.
+
+    Retries are safe: point IDs are deterministic (uuid5 of doc_id), so a retry of a
+    write that timed out but landed is an idempotent upsert, not a duplicate.
+    """
+    ids = [point_id(d.metadata["doc_id"]) for d in batch]
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            return vector_store.add_documents(documents=batch, ids=ids)
+        except Exception as e:
+            if attempt == MAX_ATTEMPTS:
+                print(f"\n✗ Batch {batch_idx} failed: {e}")
+                raise
+            delay = 2 ** attempt
+            print(f"\n⚠ Batch {batch_idx} attempt {attempt}/{MAX_ATTEMPTS} failed: {e}; retrying in {delay}s")
+            time.sleep(delay)
 
 
 def missing_requested_sources(
