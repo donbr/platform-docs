@@ -18,3 +18,13 @@ def test_resolve_expected_zero_computes_dynamically():
     # 0 => compute from the real split output; just assert it's a non-negative int
     n = verify_counts.resolve_expected(0)
     assert isinstance(n, int) and n >= 0
+
+
+def test_exact_requires_equality():
+    assert verify_counts.is_complete(609, 608, exact=True) is False  # retry duplicates
+    assert verify_counts.is_complete(607, 608, exact=True) is False
+    assert verify_counts.is_complete(608, 608, exact=True) is True
+
+
+def test_default_remains_at_least():
+    assert verify_counts.is_complete(609, 608) is True

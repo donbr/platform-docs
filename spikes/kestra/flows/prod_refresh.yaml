@@ -135,12 +135,13 @@ tasks:
       WHERE run_id = '{{ execution.id }}';
 
   # THE GATE: non-zero exit fails the flow -> the production swap below never runs.
+  # --exact: reset_target guarantees a fresh collection, so any surplus means retry duplicates.
   - id: verify_counts
     type: io.kestra.plugin.scripts.shell.Commands
     taskRunner:
       type: io.kestra.plugin.core.runner.Process
     commands:
-      - cd /repo && uv run python -m spikes.kestra.verify_counts --collection {{ inputs.target_collection }} --expected {{ outputs.compute_expected.vars.count }}
+      - cd /repo && uv run python -m spikes.kestra.verify_counts --collection {{ inputs.target_collection }} --expected {{ outputs.compute_expected.vars.count }} --exact --check-floors
 
   - id: swap_prod_alias
     type: io.kestra.plugin.scripts.shell.Commands

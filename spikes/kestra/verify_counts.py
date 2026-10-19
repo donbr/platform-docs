@@ -12,8 +12,8 @@ from spikes.kestra import poc_config
 BASELINES_PATH = Path(__file__).with_name("source_baselines.json")
 
 
-def is_complete(actual: int, expected: int) -> bool:
-    return actual >= expected
+def is_complete(actual: int, expected: int, exact: bool = False) -> bool:
+    return actual == expected if exact else actual >= expected
 
 
 def load_baselines(path: Path = BASELINES_PATH) -> dict[str, int]:
@@ -57,14 +57,21 @@ def main():
     p.add_argument("--collection", required=True)
     p.add_argument("--expected", type=int, default=0,
                    help="positive value overrides; 0 (default) computes from split output")
+    p.add_argument("--exact", action="store_true",
+                   help="require actual == expected (surplus means duplicates)")
+    p.add_argument("--check-floors", action="store_true",
+                   help="also fail if any source is below its source_baselines.json floor")
     args = p.parse_args()
     expected = resolve_expected(args.expected)
     args.expected = expected  # for the print below
     actual = qdrant_count(args.collection)
-    ok = is_complete(actual, args.expected)
+    ok = is_complete(actual, args.expected, exact=args.exact)
     print(f"verify_counts: collection={args.collection} actual={actual} expected={args.expected} ok={ok}")
 
-    shortfalls = check_source_floors(poc_config.DEFAULT_PAGES_DIR, load_baselines())
+    shortfalls = (
+        check_source_floors(poc_config.DEFAULT_PAGES_DIR, load_baselines())
+        if args.check_floors else []
+    )
     for source, source_actual, floor in shortfalls:
         print(f"verify_counts: SOURCE BELOW FLOOR {source} actual={source_actual} floor={floor}")
 
