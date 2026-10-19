@@ -39,3 +39,8 @@ def test_load_baselines_reads_the_committed_file(tmp_path):
     path = tmp_path / "source_baselines.json"
     path.write_text(json.dumps({"floors": {"Zep": 150}}))
     assert load_baselines(path) == {"Zep": 150}
+
+
+def test_zep_fetch_floor_matches_gate_floor():
+    from scripts.fetch_sitemap_pages import SITEMAP_SOURCES
+    assert SITEMAP_SOURCES["Zep"]["min_pages"] == load_baselines()["Zep"]

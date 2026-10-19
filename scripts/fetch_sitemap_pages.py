@@ -58,7 +58,8 @@ SITEMAP_SOURCES = {
         # for version v3" and use older endpoint names). Indexing them would double-index
         # Zep and let stale endpoints surface beside current ones.
         "exclude_segments": {"v2", "v3", "changelog"},
-        "min_pages": 150,
+        # Mirrors the promotion-gate floor in spikes/kestra/source_baselines.json (test-enforced).
+        "min_pages": 265,
     },
 }
 
