@@ -36,7 +36,6 @@ SOURCES_WITH_URL = [
 # Sources with header-only pattern (no Source: line)
 SOURCES_HEADER_ONLY = [
     'PydanticAI',
-    'Zep',
     'GoogleADK',
     'OpenAI',
     'Vue',

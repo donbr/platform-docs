@@ -1,7 +1,11 @@
 """Unit tests for the sitemap-driven page fetcher."""
 import json
 
-from scripts.fetch_sitemap_pages import parse_page, parse_sitemap, select_urls, write_pages
+from scripts.download_llms_raw import SOURCES
+from scripts.split_llms_pages import (
+    SOURCES_GROK, SOURCES_HEADER_ONLY, SOURCES_MULTI_LEVEL, SOURCES_WITH_URL,
+)
+from scripts.fetch_sitemap_pages import SITEMAP_SOURCES, parse_page, parse_sitemap, select_urls, write_pages
 
 SITEMAP_FIXTURE = """<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -146,3 +150,23 @@ def test_write_pages_roundtrips_the_page_schema(tmp_path):
     written = json.loads((tmp_path / "Zep" / "0000_Adding_Episodes.json").read_text())
     assert set(written) == {"title", "source_url", "content", "content_length"}
     assert written["source_url"].startswith("https://help.getzep.com/")
+
+
+def test_sitemap_sources_are_not_also_llms_txt_sources():
+    """Two writers to one pages dir means the splitter silently clobbers the fetch."""
+    assert not (set(SITEMAP_SOURCES) & set(SOURCES))
+
+
+def test_sitemap_sources_have_no_split_strategy():
+    all_split = set(SOURCES_WITH_URL) | set(SOURCES_HEADER_ONLY) | set(SOURCES_MULTI_LEVEL) | set(SOURCES_GROK)
+    assert not (set(SITEMAP_SOURCES) & all_split)
+
+
+def test_every_downloaded_source_still_has_a_split_strategy():
+    """Guards the Cursor-class defect: a source that downloads but never splits
+    reaches Qdrant not at all."""
+    all_split = set(SOURCES_WITH_URL) | set(SOURCES_HEADER_ONLY) | set(SOURCES_MULTI_LEVEL) | set(SOURCES_GROK)
+    assert set(SOURCES) - all_split == {"Cursor"}, (
+        "A downloaded source has no split strategy. Cursor is the known, tracked "
+        "instance; anything else here is a new silent-drop defect."
+    )
