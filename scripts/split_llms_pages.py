@@ -7,7 +7,7 @@ Usage:
 
 Four splitting strategies:
 1. Source URL pattern: ^# .*$\nSource: (for LangChain, Anthropic, etc.)
-2. Header-only pattern: ^# (for PydanticAI, Zep - filters out code block false positives)
+2. Header-only pattern: ^# (for PydanticAI, GoogleADK - filters out code block false positives)
 3. Multi-level pattern: ^#{1,2} (for Temporal - splits on # and ## headers)
 4. Grok pattern: ^===/path=== page delimiter (for Grok - docs.x.ai/llms.txt)
 

@@ -29,6 +29,7 @@ cp .env.example .env       # Configure credentials
 ```bash
 uv run scripts/download_llms_raw.py           # Download all sources
 uv run scripts/split_llms_pages.py            # Split into pages
+uv run scripts/fetch_sitemap_pages.py         # Fetch sitemap sources (Zep)
 uv run scripts/upload_to_qdrant.py            # Upload (OpenAI embeddings)
 uv run scripts/upload_to_qdrant_fastembed.py  # Upload (FastEmbed, free)
 
@@ -65,10 +66,13 @@ fastmcp deploy fastmcp-fastembed.json          # Deploy FastEmbed server
 2. **Split** (`split_llms_pages.py`)
    - Three splitting strategies based on source format (exact source→strategy mapping lives in the `SOURCES_WITH_URL` / `SOURCES_HEADER_ONLY` / `SOURCES_MULTI_LEVEL` lists at the top of the file):
      - URL Pattern: `# Title\nSource: URL` (LangChain, Anthropic, Prefect, FastMCP, McpProtocol)
-     - Header-Only: `# Title` (PydanticAI, Zep, GoogleADK)
+     - Header-Only: `# Title` (PydanticAI, GoogleADK)
      - Multi-Level: `#` and `##` headers (Temporal)
    - Pages shorter than `MIN_CONTENT_LENGTH` (200 chars) are **dropped** as API-reference stubs so they don't dominate top-k for short queries.
    - Outputs to `data/interim/pages/{Source}/*.json`
+
+2b. **Fetch sitemap sources** (`fetch_sitemap_pages.py`)
+   - Sources in `SITEMAP_SOURCES` (Zep) bypass download/split: pages are fetched per URL from the sitemap (`.md` variant) and written directly to `data/interim/pages/{Source}/`, rejecting soft-404s and stubs, with a per-source `manifest.json` the uploaders fall back to.
 
 3. **Upload** (`upload_to_qdrant.py` or `upload_to_qdrant_fastembed.py`)
    - Batch embedding and upload to Qdrant
@@ -98,7 +102,8 @@ Both `server.py` files define the same two tools but point at different collecti
    - `SOURCES_WITH_URL` - Has `Source: URL` line
    - `SOURCES_HEADER_ONLY` - Just `# Title` headers
    - `SOURCES_MULTI_LEVEL` - Splits on `#` and `##`
-3. Run the pipeline: download → split → upload
+   - If the source only publishes a sitemap (no `llms-full.txt`), skip steps 1-2 and add it to `SITEMAP_SOURCES` in `scripts/fetch_sitemap_pages.py` instead (plus a floor in `spikes/kestra/source_baselines.json`)
+3. Run the pipeline: download → split → fetch sitemap sources → upload
 
 ## Data Directory Structure
 
