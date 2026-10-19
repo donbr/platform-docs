@@ -146,6 +146,8 @@ def write_pages(source_name: str, pages: list[dict], pages_dir: Path = PAGES_DIR
         "pattern_type": "sitemap_markdown",
         "page_count": len(pages),
         "total_content_chars": sum(p["content_length"] for p in pages),
+        # Same definition as split_llms_pages (mean content_length); the uploaders read it.
+        "avg_size_chars": (sum(p["content_length"] for p in pages) / len(pages)) if pages else 0,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "pages": [
             {"index": i, "title": p["title"], "source_url": p["source_url"],

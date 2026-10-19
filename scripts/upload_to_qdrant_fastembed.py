@@ -114,6 +114,12 @@ def load_documents(
 
         source_manifest = manifest["results"].get(source_name, {})
         if not source_manifest:
+            # Sitemap-fetched sources (e.g. Zep) bypass the splitter, so the top-level
+            # manifest never lists them; use the fetcher's per-source manifest instead.
+            per_source = source_dir / "manifest.json"
+            if per_source.exists():
+                source_manifest = json.loads(per_source.read_text(encoding="utf-8"))
+        if not source_manifest:
             print(f"  Warning: {source_name} not found in manifest")
             continue
 
@@ -167,6 +173,15 @@ def upload_batch(
     except Exception as e:
         print(f"\n✗ Batch {batch_idx} failed: {e}")
         raise
+
+
+def missing_requested_sources(
+    documents: List[Document],
+    source_filter: Optional[List[str]],
+) -> List[str]:
+    """Sources named in --sources that contributed no documents."""
+    loaded = {d.metadata["source_name"] for d in documents}
+    return [s for s in (source_filter or []) if s not in loaded]
 
 
 def upload_documents(
@@ -321,6 +336,11 @@ def main():
             PAGES_DIR,
             source_filter=args.sources,
         )
+
+        missing = missing_requested_sources(documents, args.sources)
+        if missing:
+            print(f"\n✗ Requested source(s) loaded 0 documents: {', '.join(missing)}")
+            exit(1)
 
         if not documents:
             print("\n✗ No documents found to upload")
