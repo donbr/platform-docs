@@ -20,16 +20,20 @@ from qdrant_client import QdrantClient
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts"))
 from download_llms_raw import SOURCES  # noqa: E402
+from fetch_sitemap_pages import SITEMAP_SOURCES  # noqa: E402
 
 PROD_ALIAS = "platform-docs"
 FIELDS = ["source", "source_url", "doc_count", "last_downloaded", "collection_version", "generated_at"]
 
 
 def source_base_urls() -> dict[str, str]:
-    """Map each source to its docs-site base URL (scheme://host) from SOURCES."""
+    """Map each source to its docs-site base URL (scheme://host) from SOURCES and SITEMAP_SOURCES."""
     out = {}
     for name, (_llms, full) in SOURCES.items():
         p = urlparse(full)
+        out[name] = f"{p.scheme}://{p.netloc}"
+    for name, cfg in SITEMAP_SOURCES.items():
+        p = urlparse(cfg["sitemap"])
         out[name] = f"{p.scheme}://{p.netloc}"
     return out
 
