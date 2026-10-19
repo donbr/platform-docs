@@ -1,5 +1,7 @@
 """Unit tests for the sitemap-driven page fetcher."""
-from scripts.fetch_sitemap_pages import parse_page, parse_sitemap, select_urls
+import json
+
+from scripts.fetch_sitemap_pages import parse_page, parse_sitemap, select_urls, write_pages
 
 SITEMAP_FIXTURE = """<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -99,3 +101,48 @@ def test_parse_page_rejects_stub_below_min_content_length():
 
 def test_parse_page_rejects_markdown_with_no_heading():
     assert parse_page("just some text with no heading at all", "https://x/y") is None
+
+
+def _page(title, body_char="x"):
+    content = body_char * 300
+    return {"title": title, "source_url": f"https://help.getzep.com/{title}",
+            "content": content, "content_length": len(content)}
+
+
+def test_write_pages_uses_uploader_filename_contract(tmp_path):
+    """Uploader derives page_num from stem.split('_')[0]; index must lead."""
+    write_pages("Zep", [_page("Adding Episodes"), _page("Searching")], tmp_path)
+    names = sorted(f.name for f in (tmp_path / "Zep").glob("*.json") if f.name != "manifest.json")
+    assert names == ["0000_Adding_Episodes.json", "0001_Searching.json"]
+
+
+def test_write_pages_sanitizes_titles_into_filenames(tmp_path):
+    write_pages("Zep", [_page("Neo4j: Configuration & Setup!")], tmp_path)
+    name = next(f.name for f in (tmp_path / "Zep").glob("[0-9]*.json"))
+    # `\s+` collapses the run of spaces left by the stripped '&' into ONE underscore.
+    assert name == "0000_Neo4j_Configuration_Setup.json"
+
+
+def test_write_pages_writes_manifest_with_count(tmp_path):
+    manifest = write_pages("Zep", [_page("A"), _page("B")], tmp_path)
+    on_disk = json.loads((tmp_path / "Zep" / "manifest.json").read_text())
+    assert manifest["page_count"] == 2
+    assert on_disk["page_count"] == 2
+    assert on_disk["source"] == "Zep"
+
+
+def test_write_pages_clears_stale_files_from_prior_runs(tmp_path):
+    """Mirrors split_llms_pages.process_source, so removed pages don't linger
+    and get picked up by the uploader's *.json glob."""
+    stale = tmp_path / "Zep" / "9999_Removed_Page.json"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("{}")
+    write_pages("Zep", [_page("Kept")], tmp_path)
+    assert not stale.exists()
+
+
+def test_write_pages_roundtrips_the_page_schema(tmp_path):
+    write_pages("Zep", [_page("Adding Episodes")], tmp_path)
+    written = json.loads((tmp_path / "Zep" / "0000_Adding_Episodes.json").read_text())
+    assert set(written) == {"title", "source_url", "content", "content_length"}
+    assert written["source_url"].startswith("https://help.getzep.com/")
