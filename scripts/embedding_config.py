@@ -11,6 +11,10 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+# Full-corpus refreshes hit OpenAI's 5M TPM limit (429s). Retrying is safe because a failed
+# embed call happens before any Qdrant upsert, so retries add no duplicate points.
+EMBEDDING_MAX_RETRIES = 8
+
 
 def get_embeddings():
     """
@@ -33,6 +37,7 @@ def get_embeddings():
         model="text-embedding-3-small",
         openai_api_key=api_key,
         dimensions=1536,  # Default dimension for text-embedding-3-small
+        max_retries=EMBEDDING_MAX_RETRIES,
     )
 
 
